@@ -1,0 +1,41 @@
+cmake_policy(SET CMP0076 NEW)
+target_sources(rtp_decoder
+        PRIVATE
+        context.cc
+        media_stream.cc
+        holepuncher.cc
+        hostname.cc
+        random.cc
+        reception_flow.cc
+        rtp.cc
+        rtcp.cc
+        socket.cc
+        socketfactory.cc
+        rtcp_reader.cc
+        crypto.cc
+        srtp/base.cc
+        formats/media.cc
+        formats/v3c.cc
+        formats/h26x.cc
+        formats/h264.cc
+        formats/h265.cc
+        formats/h266.cc
+        frame_queue.cc
+        poll.cc
+        rtcp_packets.cc
+        srtp/srtp.cc
+        srtp/srtcp.cc
+        zrtp.cc
+        zrtp/zrtp_message.cc
+        zrtp/dh_kxchng.cc
+        zrtp/hello.cc
+        zrtp/commit.cc
+        zrtp/confack.cc
+        zrtp/confirm.cc
+        zrtp/zrtp_receiver.cc
+        zrtp/hello_ack.cc
+        clock.cc
+        frame.cc
+        session.cc
+        version.cc
+)
