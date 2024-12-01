@@ -644,6 +644,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
         bnum = b + 1;
       }
       // printf("%d,%d,%d\n", prec->res_num, bnum, cblk->length);
+      fprintf(log_file, "%d,%d,%d\n", prec->res_num, bnum, cblk->length);
       move_forward(s, cblk->length);
     }
   }

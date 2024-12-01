@@ -335,11 +335,11 @@ void print_SIZ(siz_marker *siz, coc_marker *cocs, dfs_marker *dfs) {
   }
 }
 
-int parse_main_header(codestream *buf, siz_marker *siz, cod_marker *cod, coc_marker *cocs, qcd_marker *qcd,
+uint32_t parse_main_header(codestream *buf, siz_marker *siz, cod_marker *cod, coc_marker *cocs, qcd_marker *qcd,
                       dfs_marker *dfs) {
   if (get_word(buf) != SOC) {
     printf("invalid j2c\n");
-    return EXIT_FAILURE;
+    return 0;
   }
 
   uint16_t marker;
@@ -369,5 +369,5 @@ int parse_main_header(codestream *buf, siz_marker *siz, cod_marker *cod, coc_mar
         break;
     }
   }
-  return EXIT_SUCCESS;
+  return buf->pos;
 }

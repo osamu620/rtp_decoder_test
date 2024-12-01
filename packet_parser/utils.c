@@ -21,7 +21,8 @@ uint32_t get_bytes_allocated(void) { return g_allocated_bytes; }
 
 #define BUFSIZE (1024 * 30000)
 void *stackAlloc(const size_t n, int reset) {
-  return malloc(n);
+  g_allocated_bytes += n;
+  // return malloc(n);
   static char buffer[BUFSIZE] = {0};
   static size_t index         = 0;
   if (reset) {
@@ -36,6 +37,7 @@ void *stackAlloc(const size_t n, int reset) {
   index += n;
   return (void *)out;
 }
+uint32_t get_bytes_allocated(void) { return g_allocated_bytes; }
 
 void av_log(uint8_t dummy0, void *dummy1, char *msg) { printf("%s\n", msg); }
 

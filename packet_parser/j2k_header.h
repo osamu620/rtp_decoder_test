@@ -7,7 +7,7 @@
 
 #include "type.h"
 
-int parse_main_header(codestream *buf, siz_marker *siz, cod_marker *cod, coc_marker *cocs, qcd_marker *qcd,
+uint32_t parse_main_header(codestream *buf, siz_marker *siz, cod_marker *cod, coc_marker *cocs, qcd_marker *qcd,
                       dfs_marker *dfs);
 
 #endif  // J2K_HEADER_H_H

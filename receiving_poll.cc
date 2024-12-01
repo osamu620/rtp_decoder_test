@@ -27,11 +27,11 @@ constexpr char LOCAL_ADDRESS[] = "127.0.0.1";
 
 // How long this example will run
 constexpr auto RECEIVE_TIME_MS      = std::chrono::milliseconds(30000);
-constexpr int RECEIVER_WAIT_TIME_MS = 100;
+constexpr int RECEIVER_WAIT_TIME_MS = 45;
 
 static uint8_t incoming_data[1024 * 2048];
 
-void process_frame(uvgrtp::frame::rtp_frame *frame, size_t *, j2k::frame_handler *fh);
+void process_frame(uvgrtp::frame::rtp_frame *frame, j2k::frame_handler *fh);
 
 int main(void) {
   std::cout << "Starting uvgRTP RTP receive hook example" << std::endl;
@@ -43,20 +43,19 @@ int main(void) {
 
   uvgrtp::media_stream *receiver = sess->create_stream(LOCAL_PORT, RTP_FORMAT_H265, flags);
 
-  size_t frame_idx = 0;
   if (receiver) {
     std::cout << "Start receiving frames for " << RECEIVE_TIME_MS.count() << " ms" << std::endl;
     auto start = std::chrono::steady_clock::now();
 
     while (std::chrono::steady_clock::now() - start < RECEIVE_TIME_MS) {
-      /* You can specify a timeout for the operation and if the a frame is not received
+      /* You can specify a timeout for the operation and if a frame is not received
        * within that time limit, pull_frame() returns a nullptr
        *
        * The parameter tells how long time a frame is waited in milliseconds */
       uvgrtp::frame::rtp_frame *frame = receiver->pull_frame(RECEIVER_WAIT_TIME_MS);
 
       if (frame) {
-        process_frame(frame, &frame_idx, &frame_handler);
+        process_frame(frame, &frame_handler);
       }
     }
 
@@ -71,7 +70,7 @@ int main(void) {
   return EXIT_SUCCESS;
 }
 
-void process_frame(uvgrtp::frame::rtp_frame *frame, size_t *frame_idx, j2k::frame_handler *fh) {
+void process_frame(uvgrtp::frame::rtp_frame *frame, j2k::frame_handler *fh) {
   uint8_t *pp = frame->payload + 4;
   //
   int MH      = pp[0] >> 6;
