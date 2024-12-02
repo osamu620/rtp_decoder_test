@@ -5,7 +5,7 @@
 
 #include "frame_handler.hpp"
 
-/* This example demostrates using polling to receive RTP frames. Polling in
+/* This example demonstrates using polling to receive RTP frames. Polling in
  * uvgRTP can be done with function pull_frame in media_streamer. This pull_frame
  * function can be used with or without a timeout argument. If used without a timeout
  * argument, the function will return when a frame is received or the media stream
@@ -20,21 +20,25 @@
  * with the sending example to complete the demonstration.
  */
 
-// parameters of this example. You may change these to reflect you network environment
-constexpr uint16_t LOCAL_PORT = 8080;
-
-constexpr char LOCAL_ADDRESS[] = "127.0.0.1";
-
-// How long this example will run
-constexpr auto RECEIVE_TIME_MS      = std::chrono::milliseconds(30000);
-constexpr int RECEIVER_WAIT_TIME_MS = 45;
-
 static uint8_t incoming_data[1024 * 2048];
 
 void process_frame(uvgrtp::frame::rtp_frame *frame, j2k::frame_handler *fh);
 
-int main(void) {
+int main(int argc, char*argv[]) {
   std::cout << "Starting uvgRTP RTP receive hook example" << std::endl;
+
+  const char * LOCAL_ADDRESS = argv[1];
+  const uint16_t LOCAL_PORT = static_cast<uint16_t>(std::stoi(argv[2]));
+  int64_t TIME_MS = INT64_MAX;
+  if (argc > 3) {
+    TIME_MS = std::stoi(argv[3]);
+  }
+  // How long this example will run
+  const auto RECEIVE_TIME_MS = std::chrono::milliseconds(TIME_MS);
+  size_t RECEIVER_WAIT_TIME_MS = 45;
+  if (argc > 4) {
+    RECEIVER_WAIT_TIME_MS = static_cast<size_t>(std::stoi(argv[4]));
+  }
 
   j2k::frame_handler frame_handler(incoming_data);
   uvgrtp::context ctx;
