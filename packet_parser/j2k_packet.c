@@ -717,8 +717,8 @@ int read_tile(tile_ *tile, const coc_marker *cocs, const dfs_marker *dfs) {
       step_x = 1 << step_x;
       step_y = 1 << step_y;
 
-      for (uint32_t y = 0; y < tile->coord.y1; y += step_y) {
-        for (uint32_t x = 0; x < tile->coord.x1; x += step_x) {
+      for (uint32_t y = tile->coord.y0; y < tile->coord.y1; y += step_y) {
+        for (uint32_t x = tile->coord.x0; x < tile->coord.x1; x += step_x) {
           for (uint32_t c = CS; c < CE; ++c) {
             const coc_marker *coc = &cocs[c];
             tcomp_ *tcp           = &(tile->tcomp[c]);
