@@ -49,13 +49,13 @@ class frame_handler {
     start_time = std::chrono::high_resolution_clock::now();
   }
 
-  size_t get_idx() const { return total_frames; }
+  size_t get_total_frames() const { return total_frames; }
 
-  double get_duration(uint32_t nframes) {
+  double get_duration() {
     auto duration = std::chrono::high_resolution_clock::now() - start_time;
     auto count    = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
     start_time    = std::chrono::high_resolution_clock::now();
-    return static_cast<double>(count) / 1000.0 / static_cast<double>(nframes);
+    return static_cast<double>(count) / 1000;
   }
 
   inline void countup_lost_frames() { this->lost_frames++; }
@@ -92,16 +92,16 @@ class frame_handler {
       }
     }
     if (marker) {
-      // char buf[128];
-      // snprintf(buf, 128, "out_%05lu.j2c", total_frames);
-      // FILE* fp = fopen(buf, "wb");
-      // fwrite(this->incoming_data, 1, incoming_data_len, fp);
-      // fclose(fp);
-      //
-      // snprintf(buf, 128, "log_%05lu.log", total_frames);
-      // log_init(buf);
+      char buf[128];
+      snprintf(buf, 128, "out_%05lu.j2c", total_frames);
+      FILE* fp = fopen(buf, "wb");
+      fwrite(this->incoming_data, 1, incoming_data_len, fp);
+      fclose(fp);
+
+      snprintf(buf, 128, "log_%05lu.log", total_frames);
+      log_init(buf);
       process();
-      // log_close();
+      log_close();
       // printf("%d bytes allocated\n", get_bytes_allocated());
     }
   }

@@ -24,7 +24,15 @@ static uint8_t incoming_data[1024 * 2048];
 
 void process_frame(uvgrtp::frame::rtp_frame *frame, j2k::frame_handler *fh, size_t &, uint32_t &);
 
+void print_help(char *cmd) {
+  std::cout << "Usage:" << cmd << " address port duration(ms) wait(ms)" << std::endl;
+}
+
 int main(int argc, char*argv[]) {
+  if (argc != 5) {
+    print_help(argv[0]);
+    return EXIT_FAILURE;
+  }
   std::cout << "Starting uvgRTP RTP receive hook example" << std::endl;
 
   const char * LOCAL_ADDRESS = argv[1];
@@ -41,7 +49,7 @@ int main(int argc, char*argv[]) {
   }
 
   j2k::frame_handler frame_handler(incoming_data);
-  size_t frame_idx         = 0;
+  size_t total_frames      = 0;
   uint32_t last_time_stamp = 0;
 
   uvgrtp::context ctx;
@@ -63,7 +71,7 @@ int main(int argc, char*argv[]) {
 
       if (frame) {
         // std::cout << frame->header.timestamp << "," << last_time_stamp << std::endl;
-        process_frame(frame, &frame_handler, frame_idx, last_time_stamp);
+        process_frame(frame, &frame_handler, total_frames, last_time_stamp);
       } else {
         frame_handler.countup_lost_frames();
       }
@@ -80,7 +88,7 @@ int main(int argc, char*argv[]) {
   return EXIT_SUCCESS;
 }
 
-void process_frame(uvgrtp::frame::rtp_frame *frame, j2k::frame_handler *fh, size_t &frame_idx,
+void process_frame(uvgrtp::frame::rtp_frame *frame, j2k::frame_handler *fh, size_t &total_frames,
                    uint32_t &last_time_stamp) {
   uint8_t *pp = frame->payload + 4;
   //
@@ -112,11 +120,12 @@ void process_frame(uvgrtp::frame::rtp_frame *frame, j2k::frame_handler *fh, size
 
   if (frame->header.timestamp >= last_time_stamp + 45000) {
     last_time_stamp = frame->header.timestamp;
-    size_t f        = fh->get_idx();
-    std::cout << "Processed frames = " << f << ", fps = " << fh->get_duration(f - frame_idx + 1)
+    size_t f        = fh->get_total_frames();
+    std::cout << "Processed frames = " << f
+              << ", fps = " << 1000.0 * (f - total_frames) / fh->get_duration()
               << ", trunc = " << fh->get_trunc_frames() << ", lost = " << fh->get_lost_frames()
               << std::endl;
-    frame_idx = f;
+    total_frames = f;
   }
 
   /* When we receive a frame, the ownership of the frame belongs to us and
