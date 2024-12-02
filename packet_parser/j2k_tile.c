@@ -117,9 +117,10 @@ void destroy_tiles(tile_ *tiles, const siz_marker *siz) {
           prec_ *prec = &res->prec[p];
           for (uint32_t bp = 0; bp < prec->num_bands; ++bp) {
             pband_ *pband = &prec->pband[bp];
-            for (uint32_t n = 0; n < prec->ncbw * prec->ncbh; ++n) {
-              free(&pband->blk[n]);
-            }
+            // for (uint32_t n = 0; n < prec->ncbw * prec->ncbh; ++n) {
+            //   free(&pband->blk[n]);
+            // }
+            free(pband->blk);
             free(pband->incl);
             free(pband->zbp);
           }

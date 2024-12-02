@@ -60,7 +60,6 @@ class frame_handler {
 
   inline void countup_lost_frames() { this->lost_frames++; }
   inline size_t get_lost_frames() const { return this->lost_frames; }
-  inline void countup_trunc_frames() { this->trunc_frames++; }
   inline size_t get_trunc_frames() const { return this->trunc_frames; }
 
   ~frame_handler() {
@@ -72,7 +71,12 @@ class frame_handler {
   void restart() {
     restart_tiles(tiles, &siz);
     // destroy_tiles(tiles, &siz);
+    // tiles             = nullptr;
     incoming_data_len = 0;
+    cs.pos            = 0;
+    cs.bits           = 0;
+    cs.last           = 0;
+    cs.tmp            = 0;
   }
 
   void pull_data(uint8_t* data, size_t size, int MH, int marker) {
@@ -88,30 +92,27 @@ class frame_handler {
       }
     }
     if (marker) {
-      char buf[128];
-      snprintf(buf, 128, "out_%05lu.j2c", total_frames);
-      FILE* fp = fopen(buf, "wb");
-      fwrite(this->incoming_data, 1, incoming_data_len, fp);
-      fclose(fp);
-
-      snprintf(buf, 128, "log_%05lu.log", total_frames);
-      log_init(buf);
+      // char buf[128];
+      // snprintf(buf, 128, "out_%05lu.j2c", total_frames);
+      // FILE* fp = fopen(buf, "wb");
+      // fwrite(this->incoming_data, 1, incoming_data_len, fp);
+      // fclose(fp);
+      //
+      // snprintf(buf, 128, "log_%05lu.log", total_frames);
+      // log_init(buf);
       process();
-      log_close();
-
+      // log_close();
       // printf("%d bytes allocated\n", get_bytes_allocated());
-
-      restart();
-      total_frames++;
     }
   }
 
   void process() {
     if (tiles != nullptr) {
       if (read_tiles(tiles, &siz, cocs, &dfs)) {
-        restart();
-        countup_trunc_frames();
+        trunc_frames++;
       }
+      total_frames++;
+      restart();
     }
   }
 };
