@@ -18,7 +18,9 @@ class frame_handler {
  private:
   uint8_t* incoming_data;
   size_t incoming_data_len;
-  size_t idx;
+  size_t total_frames;
+  size_t trunc_frames;
+  size_t lost_frames;
   uint32_t start_SOD;
   siz_marker siz;
   cod_marker cod;
@@ -33,7 +35,9 @@ class frame_handler {
   frame_handler(uint8_t* p)
       : incoming_data(p),
         incoming_data_len(0),
-        idx(0),
+        total_frames(0),
+        trunc_frames(0),
+        lost_frames(0),
         start_SOD(0),
         siz({}),
         cod({}),
@@ -44,6 +48,20 @@ class frame_handler {
     cs.src = &incoming_data[0];
     start_time = std::chrono::high_resolution_clock::now();
   }
+
+  size_t get_idx() const { return total_frames; }
+
+  double get_duration(uint32_t nframes) {
+    auto duration = std::chrono::high_resolution_clock::now() - start_time;
+    auto count    = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
+    start_time    = std::chrono::high_resolution_clock::now();
+    return static_cast<double>(count) / 1000.0 / static_cast<double>(nframes);
+  }
+
+  inline void countup_lost_frames() { this->lost_frames++; }
+  inline size_t get_lost_frames() const { return this->lost_frames; }
+  inline void countup_trunc_frames() { this->trunc_frames++; }
+  inline size_t get_trunc_frames() const { return this->trunc_frames; }
 
   ~frame_handler() {
     restart_tiles(tiles, &siz);
@@ -71,27 +89,20 @@ class frame_handler {
     }
     if (marker) {
       char buf[128];
-      snprintf(buf, 128, "out_%05lu.j2c", idx);
+      snprintf(buf, 128, "out_%05lu.j2c", total_frames);
       FILE* fp = fopen(buf, "wb");
       fwrite(this->incoming_data, 1, incoming_data_len, fp);
       fclose(fp);
 
-      snprintf(buf, 128, "log_%05lu.log", idx);
+      snprintf(buf, 128, "log_%05lu.log", total_frames);
       log_init(buf);
       process();
       log_close();
 
-      if ((idx + 1) % 30 == 0) {
-        auto duration = std::chrono::high_resolution_clock::now() - start_time;
-        auto count    = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
-        double time   = static_cast<double>(count) / 1000.0 / static_cast<double>(30);
-        std::cout << "Processed " << idx + 1 << "frames, " << time << " [ms/frame]" << std::endl;
-        start_time = std::chrono::high_resolution_clock::now();
-      }
       // printf("%d bytes allocated\n", get_bytes_allocated());
 
       restart();
-      idx++;
+      total_frames++;
     }
   }
 
@@ -99,6 +110,7 @@ class frame_handler {
     if (tiles != nullptr) {
       if (read_tiles(tiles, &siz, cocs, &dfs)) {
         restart();
+        countup_trunc_frames();
       }
     }
   }

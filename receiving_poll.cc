@@ -22,7 +22,7 @@
 
 static uint8_t incoming_data[1024 * 2048];
 
-void process_frame(uvgrtp::frame::rtp_frame *frame, j2k::frame_handler *fh);
+void process_frame(uvgrtp::frame::rtp_frame *frame, j2k::frame_handler *fh, size_t &, uint32_t &);
 
 int main(int argc, char*argv[]) {
   std::cout << "Starting uvgRTP RTP receive hook example" << std::endl;
@@ -41,6 +41,9 @@ int main(int argc, char*argv[]) {
   }
 
   j2k::frame_handler frame_handler(incoming_data);
+  size_t frame_idx         = 0;
+  uint32_t last_time_stamp = 0;
+
   uvgrtp::context ctx;
   uvgrtp::session *sess = ctx.create_session(LOCAL_ADDRESS);
   int flags             = RCE_RECEIVE_ONLY;
@@ -59,7 +62,10 @@ int main(int argc, char*argv[]) {
       uvgrtp::frame::rtp_frame *frame = receiver->pull_frame(RECEIVER_WAIT_TIME_MS);
 
       if (frame) {
-        process_frame(frame, &frame_handler);
+        // std::cout << frame->header.timestamp << "," << last_time_stamp << std::endl;
+        process_frame(frame, &frame_handler, frame_idx, last_time_stamp);
+      } else {
+        frame_handler.countup_lost_frames();
       }
     }
 
@@ -74,7 +80,8 @@ int main(int argc, char*argv[]) {
   return EXIT_SUCCESS;
 }
 
-void process_frame(uvgrtp::frame::rtp_frame *frame, j2k::frame_handler *fh) {
+void process_frame(uvgrtp::frame::rtp_frame *frame, j2k::frame_handler *fh, size_t &frame_idx,
+                   uint32_t &last_time_stamp) {
   uint8_t *pp = frame->payload + 4;
   //
   int MH      = pp[0] >> 6;
@@ -103,6 +110,14 @@ void process_frame(uvgrtp::frame::rtp_frame *frame, j2k::frame_handler *fh) {
 
   fh->pull_data(frame->payload + 12, frame->payload_len - 12, MH, frame->header.marker);
 
+  if (frame->header.timestamp >= last_time_stamp + 45000) {
+    last_time_stamp = frame->header.timestamp;
+    size_t f        = fh->get_idx();
+    std::cout << "Processed frames = " << f << ", fps = " << fh->get_duration(f - frame_idx + 1)
+              << ", trunc = " << fh->get_trunc_frames() << ", lost = " << fh->get_lost_frames()
+              << std::endl;
+    frame_idx = f;
+  }
 
   /* When we receive a frame, the ownership of the frame belongs to us and
    * when we're done with it, we need to deallocate the frame */
