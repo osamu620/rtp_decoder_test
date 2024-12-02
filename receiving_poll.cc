@@ -51,7 +51,7 @@ int main(int argc, char*argv[]) {
     std::cout << "Start receiving frames for " << RECEIVE_TIME_MS.count() << " ms" << std::endl;
     auto start = std::chrono::steady_clock::now();
 
-    while (std::chrono::steady_clock::now() - start < RECEIVE_TIME_MS) {
+    while (std::chrono::steady_clock::now() - start < RECEIVE_TIME_MS || TIME_MS == 0) {
       /* You can specify a timeout for the operation and if a frame is not received
        * within that time limit, pull_frame() returns a nullptr
        *
