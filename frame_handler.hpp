@@ -16,7 +16,7 @@ extern "C" {
 
 class frame_handler {
  private:
-  uint8_t* incoming_data;               // buffer preserves incoming RTP frame data
+  uint8_t* const incoming_data;         // buffer preserves incoming RTP frame data
   size_t incoming_data_len;             // length of `incoming_data`
   size_t total_frames;                  // total number of frames processed
   size_t trunc_frames;                  // total number of truncated frames
@@ -63,8 +63,11 @@ class frame_handler {
   inline size_t get_trunc_frames() const { return this->trunc_frames; }
 
   ~frame_handler() {
+#ifdef STACK_ALLOC
     restart_tiles(tiles, &siz);
-    // destroy_tiles(tiles, &siz);
+#else
+    destroy_tiles(tiles, &siz);
+#endif
     incoming_data_len = 0;
   }
 
@@ -72,9 +75,12 @@ class frame_handler {
    *  @details This function shall be called after finishing packet parsing for a J2K frame
    */
   void restart() {
+#ifdef STACK_ALLOC
     restart_tiles(tiles, &siz);
-    // destroy_tiles(tiles, &siz);
-    // tiles             = nullptr;
+#else
+    destroy_tiles(tiles, &siz);
+    tiles = nullptr;
+#endif
     incoming_data_len = 0;
     cs.pos            = 0;
     cs.bits           = 0;
