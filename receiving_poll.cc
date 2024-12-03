@@ -29,7 +29,7 @@ void print_help(char *cmd) {
 }
 
 int main(int argc, char*argv[]) {
-  if (argc != 5) {
+  if (argc < 3) {
     print_help(argv[0]);
     return EXIT_FAILURE;
   }
@@ -106,26 +106,32 @@ void process_frame(uvgrtp::frame::rtp_frame *frame, j2k::frame_handler *fh, size
   int C       = (pp[4] >> 5) & 1;
   int RSVD    = (pp[4] >> 1) & 0x7;
   int PRIMS   = pp[5];
-  int POS = (((uint16_t)pp[4])<<4) + (pp[5] >> 4);
+  int POS     = (((uint16_t)pp[4]) << 4) + (pp[5] >> 4);
   int PID = (((uint32_t)(pp[5] & 0x0F)) << 16) + (((uint32_t)pp[6]) << 8) + pp[7];
   int TRANS   = pp[6];
   int MAT     = pp[7];
 
   if (MH == 0) {
     // body
-    // printf("RES = %d, QUAL = %d, ESEQ = %d, POS = %d, PID = %d, seq = %d\n", RES, QUAL, ESEQ, POS, PID, ESEQ * 65536 + frame->header.seq);
+    // printf("RES = %d, QUAL = %d, ESEQ = %d, POS = %d, PID = %d, s = %d, c = %d, seq = %d\n", RES, QUAL,
+    //        ESEQ, POS, PID, PID / 3, PID % 3, ESEQ * 65536 + frame->header.seq);
   }
 
   fh->pull_data(frame->payload + 12, frame->payload_len - 12, MH, frame->header.marker);
 
-  if (frame->header.timestamp >= last_time_stamp + 45000) {
+  size_t last_processed_frames = fh->get_total_frames();
+  if (last_processed_frames - total_frames >= 30) {
     last_time_stamp = frame->header.timestamp;
-    size_t f        = fh->get_total_frames();
-    std::cout << "Processed frames = " << f
-              << ", fps = " << 1000.0 * (f - total_frames) / fh->get_duration()
-              << ", trunc = " << fh->get_trunc_frames() << ", lost = " << fh->get_lost_frames()
-              << std::endl;
-    total_frames = f;
+
+    printf("Processed frames: %5zu, %7.4f fps, trunc J2K frames = %3d, lost RTP frames = %3d\n",
+           last_processed_frames, 1000.0 * (last_processed_frames - total_frames) / fh->get_duration(),
+           fh->get_trunc_frames(), fh->get_lost_frames());
+    // std::cout << "Processed frames = " << std::setw(5) << last_processed_frames
+    //           << ", fps = " << std::setw(8)
+    //           << 1000.0 * (last_processed_frames - total_frames) / fh->get_duration()
+    //           << ", trunc = " << fh->get_trunc_frames() << ", lost = " << fh->get_lost_frames()
+    //           << std::endl;
+    total_frames = last_processed_frames;
   }
 
   /* When we receive a frame, the ownership of the frame belongs to us and

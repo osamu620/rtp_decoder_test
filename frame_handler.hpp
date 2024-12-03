@@ -16,20 +16,20 @@ extern "C" {
 
 class frame_handler {
  private:
-  uint8_t* incoming_data;
-  size_t incoming_data_len;
-  size_t total_frames;
-  size_t trunc_frames;
-  size_t lost_frames;
-  uint32_t start_SOD;
-  siz_marker siz;
-  cod_marker cod;
-  coc_marker cocs[MAX_NUM_COMPONENTS];
-  qcd_marker qcd;
-  dfs_marker dfs;
-  codestream cs;
-  tile_* tiles;
-  std::chrono::time_point<std::chrono::high_resolution_clock> start_time;
+  uint8_t* incoming_data;               // buffer preserves incoming RTP frame data
+  size_t incoming_data_len;             // length of `incoming_data`
+  size_t total_frames;                  // total number of frames processed
+  size_t trunc_frames;                  // total number of truncated frames
+  size_t lost_frames;                   // total number of lost RTP frames (not J2K frames)
+  uint32_t start_SOD;                   // position of where SOD marker locates
+  siz_marker siz;                       // struct of SIZ marker defined ISO/IEC 15444-1 and 2
+  cod_marker cod;                       // struct of COD marker defined ISO/IEC 15444-1 and 2
+  coc_marker cocs[MAX_NUM_COMPONENTS];  // array of struct of COC marker defined ISO/IEC 15444-1 and 2
+  qcd_marker qcd;                       // struct of QCD marker defined ISO/IEC 15444-1 and 2
+  dfs_marker dfs;                       // struct of DFS marker defined ISO/IEC 15444-2
+  codestream cs;                        //
+  tile_* tiles;                         // pointer to tile struct allocated in STACK
+  std::chrono::time_point<std::chrono::high_resolution_clock> start_time;  // for FPS calculation
 
  public:
   frame_handler(uint8_t* p)
@@ -68,6 +68,9 @@ class frame_handler {
     incoming_data_len = 0;
   }
 
+  /** @brief restart processing for a next J2K frame
+   *  @details This function shall be called after finishing packet parsing for a J2K frame
+   */
   void restart() {
     restart_tiles(tiles, &siz);
     // destroy_tiles(tiles, &siz);
