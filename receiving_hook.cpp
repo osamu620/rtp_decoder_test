@@ -67,8 +67,8 @@ int main(int argc, char *argv[]) {
   uvgrtp::session *sess          = ctx.create_session(LOCAL_ADDRESS);
   int flags                      = RCE_RECEIVE_ONLY;
   uvgrtp::media_stream *receiver = sess->create_stream(LOCAL_PORT, RTP_FORMAT_H265, flags);
-  receiver->configure_ctx(RCC_UDP_RCV_BUF_SIZE, 8000000);
-  receiver->configure_ctx(RCC_RING_BUFFER_SIZE, 1600000);
+  // receiver->configure_ctx(RCC_UDP_RCV_BUF_SIZE, 8000000);
+  // receiver->configure_ctx(RCC_RING_BUFFER_SIZE, 1600000);
   /* Receive hook can be installed and uvgRTP will call this hook when an RTP frame is received
    *
    * This is a non-blocking operation

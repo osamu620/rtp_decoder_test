@@ -89,17 +89,23 @@ class frame_handler {
   }
 
   void pull_data(uint8_t* data, size_t size, int MH, int marker) {
-    std::memcpy(this->incoming_data + incoming_data_len, data, size);
-    incoming_data_len += size;
     if (MH >= 2) {
+      incoming_data_len = 0;
+      std::memcpy(this->incoming_data + incoming_data_len, data, size);
       if (tiles == nullptr) {
         start_SOD = parse_main_header(&cs, &siz, &cod, cocs, &qcd, &dfs);
         tiles = create_tiles(&siz, cocs, &dfs, &cs);
+        if (tiles == nullptr) {
+          return;
+        }
       } else {
         // skip main header parsing (re-use)
-        tiles->buf->pos = start_SOD;
+        cs.pos = start_SOD;
       }
+    } else {
+      std::memcpy(this->incoming_data + incoming_data_len, data, size);
     }
+    incoming_data_len += size;
     if (marker) {
       char buf[128];
       snprintf(buf, 128, "out_%05lu.j2c", total_frames);

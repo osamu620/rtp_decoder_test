@@ -33,7 +33,9 @@ tile_ *create_tiles(siz_marker *siz, coc_marker *cocs, dfs_marker *dfs, codestre
   const uint32_t numXtiles = ceildiv_int((siz->Xsiz - siz->XTOsiz), siz->XTsiz);
   const uint32_t numYtiles = ceildiv_int((siz->Ysiz - siz->YTOsiz), siz->YTsiz);
   // tile_ *tiles             = (tile_ *)calloc(numXtiles * numYtiles, sizeof(tile_));
-  tile_ *tiles = (tile_ *)stackAlloc(numXtiles * numYtiles * sizeof(tile_), 0);
+  tile_ *tiles = NULL;
+  if (numXtiles && numYtiles)
+    tiles = (tile_ *)stackAlloc(numXtiles * numYtiles * sizeof(tile_), 0);
 #ifdef DEBUG
   count_allocations(numXtiles * numYtiles * sizeof(tile_));
 #endif
