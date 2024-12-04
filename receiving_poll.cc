@@ -56,7 +56,7 @@ int main(int argc, char*argv[]) {
   uvgrtp::session *sess = ctx.create_session(LOCAL_ADDRESS);
   int flags             = RCE_RECEIVE_ONLY | RCE_FRAGMENT_GENERIC;
 
-  uvgrtp::media_stream *receiver = sess->create_stream(LOCAL_PORT, RTP_FORMAT_H265, flags);
+  uvgrtp::media_stream *receiver = sess->create_stream(LOCAL_PORT, RTP_FORMAT_H266, flags);
   receiver->configure_ctx(RCC_UDP_RCV_BUF_SIZE, 8000000);
   if (receiver) {
     std::cout << "Start receiving frames for " << RECEIVE_TIME_MS.count() << " ms" << std::endl;

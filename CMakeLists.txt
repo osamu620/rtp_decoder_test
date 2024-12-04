@@ -16,8 +16,9 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS} -O2 -g")
 set(CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS} -Os -g")
 
 add_executable(rtp_decoder
-    receiving_poll.cc
-        frame_handler.hpp
+    #    receiving_poll.cc
+    frame_handler.hpp
+    receiving_hook.cpp
 )
 
 include(CheckCXXSymbolExists)

@@ -694,11 +694,11 @@ int read_tile(tile_ *tile, const coc_marker *cocs, const dfs_marker *dfs) {
   [[maybe_unused]] uint32_t LYE, CS, CE;
   int32_t step_x, step_y;
 
-  PO  = cocs[0].progression_order; // tile->progression_order;
-  CS  = 0;  // assume No POC marker
-  RS  = 0;  // assume No POC marker
-  LYE = 1;  // assume No Layer
-  CE  = 3; //tile->num_components;
+  PO  = cocs[0].progression_order;  // tile->progression_order;
+  CS  = 0;                          // assume No POC marker
+  RS  = 0;                          // assume No POC marker
+  LYE = 1;                          // assume No Layer
+  CE  = 3;                          // tile->num_components;
 
   uint32_t px[MAX_NUM_COMPONENTS][MAX_DWT_LEVEL + 1] = {0};
   uint32_t py[MAX_NUM_COMPONENTS][MAX_DWT_LEVEL + 1] = {0};
