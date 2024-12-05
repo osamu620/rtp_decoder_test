@@ -1,6 +1,8 @@
 #pragma once
 
-#include <stdint.h>
+#include <cassert>
+#include <cstdint>
+#include <vector>
 
 #define MAX_NUM_COMPONENTS 3
 #define MAX_DWT_LEVEL 5
@@ -13,14 +15,100 @@ uint32_t get_bytes_allocated(void);
 #define LOCAL_MAX(a, b) ((a) > (b)) ? (a) : (b)
 #define LOCAL_MIN(a, b) ((a) < (b)) ? (a) : (b)
 
-struct codestream {
+class codestream {
+private:
   const uint8_t *src;
   uint32_t pos;
   uint8_t tmp;
   uint8_t last;
   uint8_t bits;
-  uint8_t avctx;
+
+public:
+  explicit codestream(const uint8_t *buf) : src(buf), pos(0), tmp(0), last(0), bits(0) {
+  }
+
+  uint8_t get_byte();
+
+  uint16_t get_word();
+
+  uint32_t get_dword();
+
+  int packetheader_get_bits(int n);
+
+  void packetheader_flush_bits();
+
+  void move_forward(uint32_t n);
+
+  const uint8_t *get_address() const;
+
+  uint32_t get_pos() const;
+
+  void reset(uint32_t p);
+
 };
+
+inline uint8_t codestream::get_byte() {
+  const uint8_t byte = src[pos];
+  tmp     = 0;
+  bits    = 0;
+  pos++;
+  return byte;
+}
+
+inline uint16_t codestream::get_word() {
+  uint16_t word = get_byte();
+  word <<= 8;
+  word |= get_byte();
+  return word;
+}
+
+inline uint32_t codestream::get_dword() {
+  uint32_t dword = get_word();
+  dword <<= 16;
+  dword |= get_word();
+  return dword;
+}
+
+inline int codestream::packetheader_get_bits(int n) {
+  int res = 0;
+
+  while (--n >= 0) {
+    res <<= 1;
+    if (bits == 0) {
+      last = tmp;
+      tmp  = get_byte();
+      bits = 7 + (last != 0xFFu);
+    }
+    bits--;
+    res |= (tmp >> bits) & 1;
+  }
+  return res;
+}
+
+inline void codestream::packetheader_flush_bits() {
+  if (tmp == 0xFFu) {
+    pos++;
+  }
+  tmp  = 0;
+  bits = 0;
+}
+
+inline void codestream::move_forward(uint32_t n) {
+  assert(bits == 0);
+  pos += n;
+}
+
+inline const uint8_t *codestream::get_address() const { return src + pos; }
+
+inline uint32_t codestream::get_pos() const { return pos; }
+
+inline void codestream::reset(uint32_t p) {
+  last = 0;
+  bits = 0;
+  tmp  = 0;
+  pos  = p;
+}
+
 
 // typedef struct {
 //   uint32_t MainRESET;
@@ -126,8 +214,6 @@ struct geometry {
   int32_t y1;
 };
 
-typedef struct geometry geometry;
-
 struct blk_ {
   // struct band_ *parent_band;
   // struct prec_ *parent_prec;
@@ -156,15 +242,12 @@ struct tagtree_node {
   tagtree_node *parent;
 };
 
-typedef struct blk_ blk_;
-
 struct pband_ {
   tagtree_node *incl;
   tagtree_node *zbp;
   blk_ *blk;
 };
 
-typedef struct pband_ pband_;
 struct prec_ {
   pband_ *pband;
   geometry coord;
@@ -181,8 +264,8 @@ struct band_ {
 };
 
 struct res_ {
-  struct band_ band[3];
-  struct prec_ *prec;
+  band_ band[3];
+  prec_ *prec;
   uint32_t idx;
   geometry coord;
   uint32_t npw;
@@ -192,35 +275,37 @@ struct res_ {
 };
 
 struct tcomp_ {
-  struct res_ res[MAX_DWT_LEVEL + 1];
+  res_ res[MAX_DWT_LEVEL + 1];
   uint32_t idx;
   geometry coord;
   uint32_t sub_x;
   uint32_t sub_y;
 };
 
-typedef struct codestream codestream;
+struct crp_status {
+  uint8_t c;
+  uint8_t r;
+  uint16_t p;
+};
 
-struct tile_ {
-  struct tcomp_ tcomp[MAX_NUM_COMPONENTS];
+class tile_ {
+public:
+  tcomp_ tcomp[MAX_NUM_COMPONENTS];
   codestream *buf;
   uint32_t idx;
   geometry coord;
   uint32_t num_components;
   uint32_t progression_order;
+  std::vector<crp_status> crp;
+
+  tile_(uint32_t t, uint32_t po) {
+    buf = nullptr;
+    idx = t;
+    coord = {};
+    num_components = MAX_NUM_COMPONENTS;
+    progression_order = po;
+  }
 };
-
-typedef struct tile_ tile_;
-typedef struct tcomp_ tcomp_;
-typedef struct res_ res_;
-typedef struct prec_ prec_;
-typedef struct band_ band_;
-
-typedef struct dfs_marker dfs_marker;
-typedef struct siz_marker siz_marker;
-typedef struct cod_marker cod_marker;
-typedef struct coc_marker coc_marker;
-typedef struct qcd_marker qcd_marker;
 
 enum DWT_direction { BOTH = 1, HORZ, VERT };
 

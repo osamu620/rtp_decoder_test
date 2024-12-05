@@ -5,7 +5,7 @@
 #ifndef J2K_PACKET_H
 #define J2K_PACKET_H
 
-#include "type.h"
+#include "type.hpp"
 
 void tag_tree_zero(tagtree_node *t, int w, int h, int val);
 int read_tile(tile_ *tile, const coc_marker *coc, const dfs_marker *dfs);

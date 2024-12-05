@@ -2,14 +2,14 @@
 // Created by OSAMU WATANABE on 2024/11/21.
 //
 
-#include <stdio.h>
-#include <stdlib.h>
+#include <cstdio>
+#include <cstdlib>
 
-#include "j2k_packet.h"
+#include "j2k_packet.hpp"
 
-#include <assert.h>
+#include <cassert>
 
-#include "utils.h"
+#include "utils.hpp"
 
 extern FILE *log_file;
 
@@ -22,38 +22,6 @@ extern FILE *log_file;
 
 // Values of flag for placeholder passes
 enum HT_PLHD_STATUS { HT_PLHD_OFF, HT_PLHD_ON };
-
-static int packetheader_get_bits(codestream *s, int n) {
-  int res = 0;
-
-  while (--n >= 0) {
-    res <<= 1;
-    if (s->bits == 0) {
-      s->last = s->tmp;
-      s->tmp  = s->src[s->pos++];
-      s->bits = 7 + (s->last != 0xFFu);
-    }
-    s->bits--;
-    res |= (s->tmp >> s->bits) & 1;
-    // s->bits--;
-  }
-  return res;
-}
-
-static void packetheader_flush_bits(codestream *buf) {
-  if (buf->tmp == 0xFFu) {
-    buf->pos++;
-  }
-  buf->tmp  = 0;
-  buf->bits = 0;
-}
-
-static void move_forward(codestream *buf, uint32_t n) {
-  assert(buf->bits == 0);
-  buf->pos += n;
-}
-
-static const uint8_t *get_address(const codestream *buf) { return buf->src + buf->pos; }
 
 static int tag_tree_decode(codestream *buf, tagtree_node *node, int threshold) {
   tagtree_node *stack[30];
@@ -77,7 +45,7 @@ static int tag_tree_decode(codestream *buf, tagtree_node *node, int threshold) {
     if (curval < stack[sp]->val) curval = stack[sp]->val;
     while (curval < threshold) {
       int ret;
-      if ((ret = packetheader_get_bits(buf, 1)) > 0) {
+      if ((ret = buf->packetheader_get_bits(1)) > 0) {
         stack[sp]->vis++;
         break;
       } else if (!ret)
@@ -111,7 +79,7 @@ static tagtree_node *tag_tree_init(int w, int h) {
   tt_size = tag_tree_size(w, h);
 
   // t = res = calloc(tt_size, sizeof(*t));
-  t = res = stackAlloc(tt_size * sizeof(*t), 0);
+  t = res = (tagtree_node *)stackAlloc(tt_size * sizeof(*t), 0);
 #ifdef DEBUG
   count_allocations(tt_size * sizeof(*t));
 #endif
@@ -317,7 +285,7 @@ void parepare_tcomp_structure(tcomp_ *tcp, siz_marker *siz, coc_marker *coc, dfs
   }
 }
 
-static inline int needs_termination(int style, int passno) {
+[[maybe_unused]] static inline int needs_termination(int style, int passno) {
   if (style & CMODE_BYPASS) {
     int type = passno % 3;
     passno /= 3;
@@ -331,20 +299,9 @@ static inline int needs_termination(int style, int passno) {
   return 0;
 }
 
-/* Read the number of coding passes. */
-static int getnpasses(codestream *s) {
-  int num;
-  if (!packetheader_get_bits(s, 1)) return 1;
-  if (!packetheader_get_bits(s, 1)) return 2;
-  if ((num = packetheader_get_bits(s, 2)) != 3) return num < 0 ? num : 3 + num;
-  if ((num = packetheader_get_bits(s, 5)) != 31) return num < 0 ? num : 6 + num;
-  num = packetheader_get_bits(s, 7);
-  return num < 0 ? num : 37 + num;
-}
-
 static int getlblockinc(codestream *s) {
   int res = 0, ret;
-  while ((ret = packetheader_get_bits(s, 1))) {
+  while ((ret = s->packetheader_get_bits(1))) {
     if (ret < 0) return ret;
     res++;
   }
@@ -379,7 +336,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
           cblk->lblock = 3;
         }
       } else {
-        incl = packetheader_get_bits(s, 1);
+        incl = s->packetheader_get_bits(1);
       }
 
       if (incl) {
@@ -390,15 +347,28 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
         uint8_t next_segment_passes   = 0;
         // uint32_t tmp_length = 0;
         // int32_t newpasses_copy, npasses_copy;
+        // Decode number of passes.
+        newpasses = 1;
+        newpasses += s->packetheader_get_bits(1);
+        if (newpasses >= 2) {
+          newpasses += s->packetheader_get_bits(1);
+          if (newpasses >= 3) {
+            newpasses += s->packetheader_get_bits(2);
+            if (newpasses >= 6) {
+              newpasses += s->packetheader_get_bits(5);
+              if (newpasses >= 37) newpasses += s->packetheader_get_bits(7);
+            }
+          }
+        }
 
-        if ((newpasses = getnpasses(s)) <= 0) return newpasses;
+        // if ((newpasses = getnpasses(s)) <= 0) return newpasses;
         if (cblk->npasses + newpasses >= JPEG2000_MAX_PASSES) {
-          av_log(s->avctx, NULL, "Too many passes");
+          printf("Too many passes\n");
           return EXIT_FAILURE;
         }
         if ((llen = getlblockinc(s)) < 0) return llen;
         if (cblk->lblock + llen + int_log2(newpasses) > 16) {
-          av_log(s->avctx, NULL, "Block with length beyond 16 bits");
+          printf("Block with length beyond 16 bits\n");
           return EXIT_FAILURE;
         }
         cblk->lblock += llen;
@@ -437,13 +407,13 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
               bits_to_read++;
               pass_bound += pass_bound;
             }
-            segment_bytes = packetheader_get_bits(s, bits_to_read);
+            segment_bytes = s->packetheader_get_bits(bits_to_read);
             if (segment_bytes) {
               if (cblk->modes & HT_MIXED) {
                 cblk->ht_plhd = HT_PLHD_OFF;
                 cblk->modes &= (uint8_t)(~(CMODE_HT));
               } else {
-                av_log(s->avctx, NULL, "Length information for a HT-codeblock is invalid");
+                printf("Length information for a HT-codeblock is invalid\n");
                 return EXIT_FAILURE;
               }
             }
@@ -452,13 +422,13 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
               bits_to_read++;
               pass_bound += pass_bound;
             }
-            segment_bytes = packetheader_get_bits(s, bits_to_read);
+            segment_bytes = s->packetheader_get_bits(bits_to_read);
             if (segment_bytes) {
               // No more placeholder passes
               if (!(cblk->modes & HT_MIXED)) {
                 // Must be the first HT Cleanup pass
                 if (segment_bytes < 2) {
-                  av_log(s->avctx, NULL, "Length information for a HT-codeblock is invalid");
+                  printf("Length information for a HT-codeblock is invalid\n");
                   return EXIT_FAILURE;
                 }
                 next_segment_passes = 2;
@@ -481,7 +451,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
                   bits_to_read++;
                   pass_bound += pass_bound;
                   segment_bytes <<= 1;
-                  segment_bytes += packetheader_get_bits(s, 1);
+                  segment_bytes += s->packetheader_get_bits(1);
                 }
               }
             } else {
@@ -496,7 +466,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
                   bits_to_read++;
                   pass_bound += pass_bound;
                   segment_bytes <<= 1;
-                  segment_bytes += packetheader_get_bits(s, 1);
+                  segment_bytes += s->packetheader_get_bits(1);
                   if (pass_bound > segment_passes) break;
                 }
                 if (segment_bytes) {
@@ -504,7 +474,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
                     cblk->modes &= (uint8_t)(~(CMODE_HT));
                     cblk->ht_plhd = HT_PLHD_OFF;
                   } else {
-                    av_log(s->avctx, NULL, "Length information for a HT-codeblock is invalid");
+                    printf("Length information for a HT-codeblock is invalid\n");
                     return EXIT_FAILURE;
                   }
                 }
@@ -514,7 +484,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
         } else if (cblk->modes & CMODE_HT) {
           // Quality layer commences with a non-initial HT coding pass
           if (bits_to_read != 0) {
-            av_log(s->avctx, NULL, "Length information for a HT-codeblock is invalid");
+            printf("Length information for a HT-codeblock is invalid\n");
             return EXIT_FAILURE;
           }
           segment_passes = cblk->npasses % 3;
@@ -522,8 +492,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
             // newpasses is a HT Cleanup pass; next segment has refinement passes
             segment_passes      = 1;
             next_segment_passes = 2;
-            if (segment_bytes == 1)
-              av_log(s->avctx, AV_LOG_WARNING, "Length information for a HT-codeblock is invalid\n");
+            if (segment_bytes == 1) printf("Length information for a HT-codeblock is invalid\n");
           } else {
             // newpasses = 1 means npasses is HT SigProp; 2 means newpasses is
             // HT MagRef pass
@@ -532,25 +501,25 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
             bits_to_read        = int_log2(segment_passes);
           }
           bits_to_read  = (uint8_t)(bits_to_read + cblk->lblock);
-          segment_bytes = packetheader_get_bits(s, bits_to_read);
+          segment_bytes = s->packetheader_get_bits(bits_to_read);
           // Write length information for HT Refinment segment
           cblk->pass_lengths[1] += segment_bytes;
         } else if (!(cblk->modes & (CMODE_TERMALL | CMODE_BYPASS))) {
           // Common case for non-HT code-blocks; we have only one segment
           bits_to_read   = (uint8_t)cblk->lblock + int_log2((uint8_t)newpasses);
-          segment_bytes  = packetheader_get_bits(s, bits_to_read);
+          segment_bytes  = s->packetheader_get_bits(bits_to_read);
           segment_passes = newpasses;
         } else if (cblk->modes & CMODE_TERMALL) {
           // RESTART MODE
           bits_to_read        = cblk->lblock;
-          segment_bytes       = packetheader_get_bits(s, bits_to_read);
+          segment_bytes       = s->packetheader_get_bits(bits_to_read);
           segment_passes      = 1;
           next_segment_passes = 1;
         } else {
           // BYPASS MODE
           bypass_term_threshold = 10;
           if (bits_to_read != 0) {
-            av_log(s->avctx, NULL, "Length information for a codeblock in BYPASS is invalid");
+            printf("Length information for a codeblock in BYPASS is invalid\n");
             return EXIT_FAILURE;
           }
           if (cblk->npasses < bypass_term_threshold) {
@@ -570,7 +539,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
             next_segment_passes = 2;
           }
           bits_to_read  = (uint8_t)(bits_to_read + cblk->lblock);
-          segment_bytes = packetheader_get_bits(s, bits_to_read);
+          segment_bytes = s->packetheader_get_bits(bits_to_read);
         }
         // Update cblk->npasses and write length information
         cblk->npasses = (uint8_t)(cblk->npasses + segment_passes);
@@ -582,7 +551,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
             segment_passes      = newpasses > 1 ? next_segment_passes : 1;
             next_segment_passes = (uint8_t)(3 - next_segment_passes);
             bits_to_read        = (uint8_t)(cblk->lblock + int_log2(segment_passes));
-            segment_bytes       = packetheader_get_bits(s, bits_to_read);
+            segment_bytes       = s->packetheader_get_bits(bits_to_read);
             newpasses -= (uint8_t)(segment_passes);
             // This is a FAST Refinement pass
             // Write length information for HT Refinement segment
@@ -600,13 +569,13 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
               bits_to_read        = (uint8_t)(cblk->lblock + int_log2(segment_passes));
             } else {
               if ((cblk->modes & CMODE_TERMALL) == 0) {
-                av_log(s->avctx, NULL, "Corrupted packet header is found.");
+                printf("Corrupted packet header is found.\n");
                 return EXIT_FAILURE;
               }
               segment_passes = 1;
               bits_to_read   = cblk->lblock;
             }
-            segment_bytes = packetheader_get_bits(s, bits_to_read);
+            segment_bytes = s->packetheader_get_bits(bits_to_read);
             newpasses -= (uint8_t)(segment_passes);
 
             // Update cblk->npasses and write length information
@@ -621,7 +590,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
       cblk->length = cblk->pass_lengths[0] + cblk->pass_lengths[1];
     }
   }
-  packetheader_flush_bits(s);
+  s->packetheader_flush_bits();
 
   // read code-block data
   for (uint32_t b = 0; b < prec->num_bands; ++b) {
@@ -629,7 +598,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
     pband_ *pband           = &prec->pband[b];
     for (uint32_t cblkno = 0; cblkno < nb_code_blocks; cblkno++) {
       blk_ *cblk = pband->blk + cblkno;
-      cblk->data = (uint8_t *)get_address(s);
+      cblk->data = (uint8_t *)s->get_address();
       if (cblk->length) {
         // recover Scup and modDcup()
         cblk->Scup =
@@ -647,7 +616,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
       if (get_log_file_fp() != NULL) {
         fprintf(log_file, "%d,%d,%d\n", prec->res_num, bnum, cblk->length);
       }
-      move_forward(s, cblk->length);
+      s->move_forward(cblk->length);
     }
   }
   return EXIT_SUCCESS;
@@ -658,25 +627,25 @@ int read_packet(codestream *buf, prec_ *prec, const coc_marker *coc) {
   int ret;
 
   if (prec->use_SOP) {
-    uint16_t word = get_word(buf);
+    uint16_t word = buf->get_word();
     if (word != SOP) {
       printf("ERROR: Expected SOP marker but %04X is found\n", word);
       return EXIT_FAILURE;
     }
-    Lsop = get_word(buf);
+    Lsop = buf->get_word();
     if (Lsop != 4) {
       printf("ERROR: illegal Lsop value %d is found\n", Lsop);
       return EXIT_FAILURE;
     }
-    Nsop = get_word(buf);
+    Nsop = buf->get_word();
   }
-  int bit = packetheader_get_bits(buf, 1);
+  int bit = buf->packetheader_get_bits(1);
 
   if (bit == 0) {
     // if 0, empty packet
-    packetheader_flush_bits(buf);  // flushing remaining bits of packet header
+    buf->packetheader_flush_bits();  // flushing remaining bits of packet header
     if (prec->use_EPH) {
-      uint16_t word = get_word(buf);
+      uint16_t word = buf->get_word();
       if (word != EPH) {
         printf("ERROR: Expected EPH marker but %04X is found\n", word);
         return EXIT_FAILURE;
@@ -706,58 +675,69 @@ int read_tile(tile_ *tile, const coc_marker *cocs, const dfs_marker *dfs) {
   // bool is_packet_read[3][6][4 * 270] = {false};
   switch (PO) {
     case PCRL:
-      step_x = 32;
-      step_y = 32;
-      for (uint32_t c = CS; c < CE; ++c) {
-        const coc_marker *coc = &cocs[c];
-        for (uint32_t r = RS; r < coc->NL + 1; ++r) {
-          step_x = LOCAL_MIN(step_x, coc->prw[r]);
-          step_y = LOCAL_MIN(step_y, coc->prh[r]);
+      if (tile->crp.empty()) {
+        step_x = 32;
+        step_y = 32;
+        for (uint32_t c = CS; c < CE; ++c) {
+          const coc_marker *coc = &cocs[c];
+          for (uint32_t r = RS; r < coc->NL + 1; ++r) {
+            step_x = LOCAL_MIN(step_x, coc->prw[r]);
+            step_y = LOCAL_MIN(step_y, coc->prh[r]);
+          }
         }
-      }
 
-      step_x = 1 << step_x;
-      step_y = 1 << step_y;
+        step_x = 1 << step_x;
+        step_y = 1 << step_y;
 
-      for (uint32_t y = tile->coord.y0; y < tile->coord.y1; y += step_y) {
-        for (uint32_t x = tile->coord.x0; x < tile->coord.x1; x += step_x) {
-          for (uint32_t c = CS; c < CE; ++c) {
-            const coc_marker *coc = &cocs[c];
-            tcomp_ *tcp           = &(tile->tcomp[c]);
-            RE                    = coc->NL + 1;
-            for (uint32_t r = RS; r < RE; ++r) {
-              res_ *rp     = &tcp->res[r];
-              uint32_t xNL = dfs->hor_depth[coc->NL - r];  // get_hor_depth(coc->NL - r, dfs);
-              uint32_t yNL = dfs->ver_depth[coc->NL - r];  // get_ver_depth(coc->NL - r, dfs);
+        for (uint32_t y = tile->coord.y0; y < tile->coord.y1; y += step_y) {
+          for (uint32_t x = tile->coord.x0; x < tile->coord.x1; x += step_x) {
+            for (uint32_t c = CS; c < CE; ++c) {
+              const coc_marker *coc = &cocs[c];
+              tcomp_ *tcp           = &(tile->tcomp[c]);
+              RE                    = coc->NL + 1;
+              for (uint32_t r = RS; r < RE; ++r) {
+                res_ *rp     = &tcp->res[r];
+                uint32_t xNL = dfs->hor_depth[coc->NL - r];  // get_hor_depth(coc->NL - r, dfs);
+                uint32_t yNL = dfs->ver_depth[coc->NL - r];  // get_ver_depth(coc->NL - r, dfs);
 
-              if (!((x % (tcp->sub_x * (1U << (coc->prw[r] + xNL))) == 0)
-                    || ((x == tile->coord.x0)
-                        && ((rp->coord.x0 * (1U << (xNL))) % (1U << (coc->prw[r] + xNL)) != 0)))) {
-                continue;
-              }
-              if (!((y % (tcp->sub_y * (1U << (coc->prh[r] + yNL))) == 0)
-                    || ((y == tile->coord.y0)
-                        && ((rp->coord.y0 * (1U << (yNL))) % (1U << (coc->prh[r] + yNL)) != 0)))) {
-                continue;
-              }
+                if (!((x % (tcp->sub_x * (1U << (coc->prw[r] + xNL))) == 0)
+                      || ((x == tile->coord.x0)
+                          && ((rp->coord.x0 * (1U << (xNL))) % (1U << (coc->prw[r] + xNL)) != 0)))) {
+                  continue;
+                }
+                if (!((y % (tcp->sub_y * (1U << (coc->prh[r] + yNL))) == 0)
+                      || ((y == tile->coord.y0)
+                          && ((rp->coord.y0 * (1U << (yNL))) % (1U << (coc->prh[r] + yNL)) != 0)))) {
+                  continue;
+                }
 
-              uint32_t p = py[c][r] * rp->npw + px[c][r];
-              prec_ *pp  = &rp->prec[p];
+                uint32_t p = py[c][r] * rp->npw + px[c][r];
+                // save identified precinct information as a sequence
+                crp_status tmp{(uint8_t)c, (uint8_t)r, (uint16_t)p};
+                tile->crp.push_back(tmp);
 
-              // if (is_packet_read[c][r][p] == false) {
-              ret = read_packet(tile->buf, pp, coc);
-              if (ret) {
-                return ret;
-              }
-              // is_packet_read[c][r][p] = true;
-              // }
+                prec_ *pp = &rp->prec[p];
+                ret       = read_packet(tile->buf, pp, coc);
+                if (ret) {
+                  return ret;
+                }
 
-              px[c][r] += 1;
-              if (px[c][r] == rp->npw) {
-                px[c][r] = 0;
-                py[c][r] += 1;
+                px[c][r] += 1;
+                if (px[c][r] == rp->npw) {
+                  px[c][r] = 0;
+                  py[c][r] += 1;
+                }
               }
             }
+          }
+        }
+      } else {
+        // use saved sequence of precincts
+        for (uint32_t i = 0; i < tile->crp.size(); ++i) {
+          prec_ *pp = &tile->tcomp[tile->crp[i].c].res[tile->crp[i].r].prec[tile->crp[i].p];
+          ret       = read_packet(tile->buf, pp, &cocs[tile->crp[i].c]);
+          if (ret) {
+            return ret;
           }
         }
       }

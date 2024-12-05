@@ -2,11 +2,11 @@
 // Created by OSAMU WATANABE on 2024/11/21.
 //
 
-#include "j2k_tile.h"
-#include "j2k_packet.h"
-#include "utils.h"
-#include <assert.h>
-#include <stdlib.h>
+#include "j2k_tile.hpp"
+#include "j2k_packet.hpp"
+#include "utils.hpp"
+#include <cassert>
+#include <cstdlib>
 
 void create_tile(tile_ *tile, siz_marker *siz, coc_marker *cocs, dfs_marker *dfs) {
   tile->progression_order = cocs[0].progression_order;
@@ -34,8 +34,7 @@ tile_ *create_tiles(siz_marker *siz, coc_marker *cocs, dfs_marker *dfs, codestre
   const uint32_t numYtiles = ceildiv_int((siz->Ysiz - siz->YTOsiz), siz->YTsiz);
   // tile_ *tiles             = (tile_ *)calloc(numXtiles * numYtiles, sizeof(tile_));
   tile_ *tiles = NULL;
-  if (numXtiles && numYtiles)
-    tiles = (tile_ *)stackAlloc(numXtiles * numYtiles * sizeof(tile_), 0);
+  if (numXtiles && numYtiles) tiles = (tile_ *)stackAlloc(numXtiles * numYtiles * sizeof(tile_), 0);
 #ifdef DEBUG
   count_allocations(numXtiles * numYtiles * sizeof(tile_));
 #endif
@@ -72,11 +71,8 @@ void restart_tiles(tile_ *tiles, const siz_marker *siz) {
   const uint32_t numXtiles = ceildiv_int((siz->Xsiz - siz->XTOsiz), siz->XTsiz);
   const uint32_t numYtiles = ceildiv_int((siz->Ysiz - siz->YTOsiz), siz->YTsiz);
   for (uint32_t t = 0; t < numXtiles * numYtiles; ++t) {
-    tile_ *tile     = &tiles[t];
-    tile->buf->last = 0;
-    tile->buf->bits = 0;
-    tile->buf->tmp  = 0;
-    tile->buf->pos  = 0;
+    tile_ *tile = &tiles[t];
+    tile->buf->reset(0);
     for (uint32_t c = 0; c < tile->num_components; ++c) {
       tcomp_ *tcp = &(tile->tcomp[c]);
       for (uint32_t r = 0; r < MAX_DWT_LEVEL + 1; ++r) {

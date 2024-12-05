@@ -2,58 +2,58 @@
 // Created by OSAMU WATANABE on 2024/11/21.
 //
 
-#include <stdio.h>
-#include <stdlib.h>
+#include <cstdio>
+#include <cstdlib>
 
-#include "j2k_header.h"
-#include "utils.h"
+#include "j2k_header.hpp"
+#include "utils.hpp"
 
 static int parse_SIZ(codestream *buf, siz_marker *siz) {
-  [[maybe_unused]] uint16_t len = get_word(buf);  // Lsiz
+  [[maybe_unused]] uint16_t len = buf->get_word();  // Lsiz
 
-  siz->Rsiz = get_word(buf);
+  siz->Rsiz = buf->get_word();
 
-  siz->Xsiz = get_dword(buf);
-  siz->Ysiz = get_dword(buf);
+  siz->Xsiz = buf->get_dword();
+  siz->Ysiz = buf->get_dword();
 
-  siz->XOsiz = get_dword(buf);
-  siz->YOsiz = get_dword(buf);
+  siz->XOsiz = buf->get_dword();
+  siz->YOsiz = buf->get_dword();
 
-  siz->XTsiz = get_dword(buf);
-  siz->YTsiz = get_dword(buf);
+  siz->XTsiz = buf->get_dword();
+  siz->YTsiz = buf->get_dword();
 
-  siz->XTOsiz = get_dword(buf);
-  siz->YTOsiz = get_dword(buf);
+  siz->XTOsiz = buf->get_dword();
+  siz->YTOsiz = buf->get_dword();
 
-  siz->Csiz = get_word(buf);
+  siz->Csiz = buf->get_word();
   if (siz->Csiz != 3) {
     printf("Only supports Csiz == 3\n");
     return EXIT_FAILURE;
   }
   for (uint16_t c = 0; c < siz->Csiz; c++) {
-    siz->Ssiz[c] = get_byte(buf);
+    siz->Ssiz[c] = buf->get_byte();
     if (siz->Ssiz[c] != 11) {
       printf("Only supports 12 bit/pixel/component\n");
       // return EXIT_FAILURE;
     }
-    siz->XRsiz[c] = get_byte(buf);  // XRsiz, 1 or 2
-    siz->YRsiz[c] = get_byte(buf);  // YRsiz, 1 or 2
+    siz->XRsiz[c] = buf->get_byte();  // XRsiz, 1 or 2
+    siz->YRsiz[c] = buf->get_byte();  // YRsiz, 1 or 2
   }
 
   return EXIT_SUCCESS;
 }
 
 static int parse_COD(codestream *buf, siz_marker *siz, cod_marker *cod) {
-  [[maybe_unused]] uint16_t len = get_word(buf);  // Lcod
+  [[maybe_unused]] uint16_t len = buf->get_word();  // Lcod
 
   //   for (uint16_t i = 0; i < len - 2; ++i) {
-  //     get_byte(buf);
+  //     buf->get_byte();
   //   }
 
   uint16_t tmp;
 
   // Scod
-  uint8_t v         = get_byte(buf);
+  uint8_t v         = buf->get_byte();
   cod->max_precinct = !(v & 1);
   if (cod->max_precinct > 1) {
     printf("Illegal Scod parameter value in COD\n");
@@ -65,44 +65,44 @@ static int parse_COD(codestream *buf, siz_marker *siz, cod_marker *cod) {
   cod->use_blkcoder_extension = (v >> 5) & 1;
 
   // Progression order
-  cod->progression_order = get_byte(buf);
-  cod->num_layers        = get_word(buf);  // number of layers
-  cod->mct               = get_byte(buf);  // color transform
+  cod->progression_order = buf->get_byte();
+  cod->num_layers        = buf->get_word();  // number of layers
+  cod->mct               = buf->get_byte();  // color transform
 
   // SPcod
-  cod->NL = get_byte(buf);
+  cod->NL = buf->get_byte();
   if (cod->NL < 1 || cod->NL > 5) {
     printf("Supprted DWT level is from 1 to 5.\n");
   }
 
   // codeblock width
-  cod->cbw = get_byte(buf) + 2;
+  cod->cbw = buf->get_byte() + 2;
   if (cod->cbw < 7 || cod->cbw > 9) {
     printf("codeblock width %d is not supported\n", 1 << cod->cbw);
   }
 
   // codeblock height
-  cod->cbh = get_byte(buf) + 2;
+  cod->cbh = buf->get_byte() + 2;
   if (cod->cbh > 4) {
     printf("codeblock height %d is not supported\n", 1 << cod->cbh);
     return EXIT_FAILURE;
   }
 
-  cod->cbs = get_byte(buf);  // codeblock style
+  cod->cbs = buf->get_byte();  // codeblock style
   if ((cod->cbs & 0x8) == 0) {
     printf("VCAUSAL shall be used\n");
   }
 
-  cod->transform = get_byte(buf);  // DWT type
+  cod->transform = buf->get_byte();  // DWT type
 
-  if (siz->Rsiz & 0x10) {  // SSO
-    tmp = get_word(buf);   // get SSO overlap value
+  if (siz->Rsiz & 0x10) {   // SSO
+    tmp = buf->get_word();  // get SSO overlap value
   }
 
   // cod->prh = (uint8_t *)calloc(cod->NL + 1, sizeof(uint8_t));
   // cod->prw = (uint8_t *)calloc(cod->NL + 1, sizeof(uint8_t));
   for (int i = 0; i <= cod->NL; ++i) {
-    tmp         = get_byte(buf);
+    tmp         = buf->get_byte();
     cod->prw[i] = tmp & 0xF;
     cod->prh[i] = (tmp >> 4) & 0xF;
   }
@@ -135,18 +135,18 @@ static void copy_cod(cod_marker *cod, coc_marker *coc) {
 }
 
 static int parse_COC(codestream *buf, siz_marker *siz, coc_marker *cocs) {
-  uint16_t len = get_word(buf) - 2;  // Lcoc
+  uint16_t len = buf->get_word() - 2;  // Lcoc
   uint16_t tmp;
 
   // Ccoc
   coc_marker *coc;
-  uint8_t v = get_byte(buf);
+  uint8_t v = buf->get_byte();
   len--;
   coc      = &cocs[v];
   coc->idx = v;
 
   // Scoc
-  v = get_byte(buf);
+  v = buf->get_byte();
   len--;
   coc->max_precinct = !(v & 1);
   if (coc->max_precinct > 1) {
@@ -159,43 +159,43 @@ static int parse_COC(codestream *buf, siz_marker *siz, coc_marker *cocs) {
   coc->use_blkcoder_extension = (v >> 5) & 1;
 
   // SPcoc
-  coc->NL = get_byte(buf);
+  coc->NL = buf->get_byte();
   len--;
   // if (coc->NL < 1 || coc->NL > 5) {
   //   printf("Supprted DWT level is from 1 to 5.\n");
   // }
 
   // codeblock width
-  coc->cbw = get_byte(buf) + 2;
+  coc->cbw = buf->get_byte() + 2;
   len--;
   if (coc->cbw < 7 || coc->cbw > 9) {
     printf("codeblock width %d is not supported\n", 1 << coc->cbw);
   }
 
   // codeblock height
-  coc->cbh = get_byte(buf) + 2;
+  coc->cbh = buf->get_byte() + 2;
   len--;
   if (coc->cbh > 4) {
     printf("codeblock height %d is not supported\n", 1 << coc->cbh);
     return EXIT_FAILURE;
   }
 
-  coc->cbs = get_byte(buf);  // codeblock style
+  coc->cbs = buf->get_byte();  // codeblock style
   len--;
   if ((coc->cbs & 0x8) == 0) {
     printf("VCAUSAL shall be used\n");
   }
 
-  coc->transform = get_byte(buf);  // DWT type
+  coc->transform = buf->get_byte();  // DWT type
   len--;
-  if (siz->Rsiz & 0x10) {  // SSO
-    tmp = get_word(buf);   // get SSO overlap value
+  if (siz->Rsiz & 0x10) {   // SSO
+    tmp = buf->get_word();  // get SSO overlap value
   }
 
   coc->step_x = 16;
   coc->step_y = 16;
   for (int i = 0; i < len; ++i) {
-    tmp         = get_byte(buf);
+    tmp         = buf->get_byte();
     coc->prw[i] = tmp & 0xF;
     coc->prh[i] = (tmp >> 4) & 0xF;
     coc->step_x = (coc->prw[i] < coc->step_x) ? coc->prw[i] : coc->step_x;
@@ -206,20 +206,20 @@ static int parse_COC(codestream *buf, siz_marker *siz, coc_marker *cocs) {
 }
 
 static int parse_DFS(codestream *buf, dfs_marker *dfs) {
-  uint16_t len = get_word(buf);  // Ldfs
+  uint16_t len = buf->get_word();  // Ldfs
   if (len < 5) {
     printf("Invalid DFS\n");
     return EXIT_FAILURE;
   }
-  dfs->idx = get_word(buf);  // Sdfs: See Table A.9 in Part 2
+  dfs->idx = buf->get_word();  // Sdfs: See Table A.9 in Part 2
 
-  dfs->Idfs = get_byte(buf);  // Idfs: Number of elements in the string defining
-                              // the number of decomposition sub-levels.
+  dfs->Idfs = buf->get_byte();  // Idfs: Number of elements in the string defining
+                                // the number of decomposition sub-levels.
 
   uint64_t bits = 0;
   for (uint16_t i = 0; i < len - 5; ++i) {
     bits <<= 8;
-    bits |= get_byte(buf);
+    bits |= buf->get_byte();
   }
   bits >>= ceildiv_int(2 * dfs->Idfs, 8) * 8 - 2 * dfs->Idfs;  // discard padding bits
 
@@ -256,8 +256,8 @@ static int parse_DFS(codestream *buf, dfs_marker *dfs) {
 }
 
 static int parse_QCD(codestream *buf, cod_marker *cod, qcd_marker *qcd, dfs_marker *dfs) {
-  [[maybe_unused]] uint16_t len = get_word(buf);  // Lqcd
-  uint8_t Sqcd                  = get_byte(buf);  // Sqcd
+  [[maybe_unused]] uint16_t len = buf->get_word();  // Lqcd
+  uint8_t Sqcd                  = buf->get_byte();  // Sqcd
   qcd->type                     = Sqcd & 0x1F;
   qcd->num_guard_bits           = (Sqcd >> 5) & 0x7;
 
@@ -268,29 +268,29 @@ static int parse_QCD(codestream *buf, cod_marker *cod, qcd_marker *qcd, dfs_mark
   //   num_bands += dfs->type[i] == BOTH ? 3 : 1;
   // }
   if (qcd->type == 0) {
-    qcd->exponent[0] = get_byte(buf) >> 3;
+    qcd->exponent[0] = buf->get_byte() >> 3;
     for (uint8_t i = 1; i <= NL; ++i) {
       if (dfs->type[i] == BOTH) {
         for (uint8_t b = 0; b < 3; ++b) {
-          qcd->exponent[3 * (i - 1) + b + 1] = get_byte(buf) >> 3;
+          qcd->exponent[3 * (i - 1) + b + 1] = buf->get_byte() >> 3;
         }
       } else {
-        qcd->exponent[3 * (i - 1) + 1] = get_byte(buf) >> 3;
+        qcd->exponent[3 * (i - 1) + 1] = buf->get_byte() >> 3;
       }
     }
   } else {
-    uint16_t tmp     = get_word(buf);
+    uint16_t tmp     = buf->get_word();
     qcd->exponent[0] = tmp >> 11;
     qcd->mantissa[0] = tmp & 0x7FF;
     for (uint8_t i = 1; i <= NL; ++i) {
       if (dfs->type[i] == BOTH) {
         for (uint8_t b = 0; b < 3; ++b) {
-          tmp                                = get_word(buf);
+          tmp                                = buf->get_word();
           qcd->exponent[3 * (i - 1) + b + 1] = tmp >> 11;
           qcd->mantissa[3 * (i - 1) + b + 1] = tmp & 0x7FF;
         }
       } else {
-        tmp                            = get_word(buf);
+        tmp                            = buf->get_word();
         qcd->exponent[3 * (i - 1) + 1] = tmp >> 11;
         qcd->mantissa[3 * (i - 1) + 1] = tmp & 0x7FF;
       }
@@ -300,9 +300,9 @@ static int parse_QCD(codestream *buf, cod_marker *cod, qcd_marker *qcd, dfs_mark
 }
 
 static int skip_marker(codestream *buf) {
-  uint16_t len = get_word(buf);  // Lmar
+  uint16_t len = buf->get_word();  // Lmar
   for (uint16_t i = 0; i < len - 2; ++i) {
-    get_byte(buf);
+    buf->get_byte();
   }
   return EXIT_SUCCESS;
 }
@@ -335,15 +335,15 @@ void print_SIZ(siz_marker *siz, coc_marker *cocs, dfs_marker *dfs) {
   }
 }
 
-uint32_t parse_main_header(codestream *buf, siz_marker *siz, cod_marker *cod, coc_marker *cocs, qcd_marker *qcd,
-                      dfs_marker *dfs) {
-  if (get_word(buf) != SOC) {
+uint32_t parse_main_header(codestream *buf, siz_marker *siz, cod_marker *cod, coc_marker *cocs,
+                           qcd_marker *qcd, dfs_marker *dfs) {
+  if (buf->get_word() != SOC) {
     printf("invalid j2c\n");
     return 0;
   }
 
   uint16_t marker;
-  while ((marker = get_word(buf)) != SOD) {
+  while ((marker = buf->get_word()) != SOD) {
     switch (marker) {
       case SIZ:
         parse_SIZ(buf, siz);
@@ -369,5 +369,5 @@ uint32_t parse_main_header(codestream *buf, siz_marker *siz, cod_marker *cod, co
         break;
     }
   }
-  return buf->pos;
+  return buf->get_pos();
 }
