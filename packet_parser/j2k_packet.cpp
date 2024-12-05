@@ -324,7 +324,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
         incl = tag_tree_decode(s, pband->incl + cblkno, 0 + 1) == 0;
 
         if (incl) {
-          int zbp = tag_tree_decode(s, pband->zbp + cblkno, 100);
+          int zbp = tag_tree_decode(s, pband->zbp + cblkno, 32);
           // int v   = expn[bandno] + numgbits - 1 - (zbp - tile->comp->roi_shift);
           // if (v < 0 || v > 30) {
           //   av_log(s->avctx, AV_LOG_ERROR, "nonzerobits %d invalid or unsupported\n", v);
@@ -613,9 +613,9 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
         bnum = b + 1;
       }
       // printf("%d,%d,%d\n", prec->res_num, bnum, cblk->length);
-      // if (get_log_file_fp() != NULL) {
-      //   fprintf(log_file, "%d,%d,%d\n", prec->res_num, bnum, cblk->length);
-      // }
+      if (get_log_file_fp() != nullptr) {
+        fprintf(log_file, "%d,%d,%d\n", prec->res_num, bnum, cblk->length);
+      }
       s->move_forward(cblk->length);
     }
   }
@@ -654,7 +654,7 @@ int read_packet(codestream *buf, prec_ *prec, const coc_marker *coc) {
         return EXIT_FAILURE;
       }
     }
-  #endif
+#endif
     return EXIT_SUCCESS;
   }
   ret = parse_packet_header(buf, prec, coc);

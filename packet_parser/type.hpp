@@ -17,14 +17,14 @@ uint32_t get_bytes_allocated(void);
 
 class codestream {
 private:
-  const uint8_t *src;
-  uint32_t pos;
+  const uint8_t *origin;
+  const unsigned char *src;
   uint8_t tmp;
   uint8_t last;
   uint8_t bits;
 
 public:
-  explicit codestream(const uint8_t *buf) : src(buf), pos(0), tmp(0), last(0), bits(0) {
+  explicit codestream(uint8_t *buf) : origin(buf), src(buf), tmp(0), last(0), bits(0) {
   }
 
   uint8_t get_byte();
@@ -50,8 +50,7 @@ public:
 };
 
 inline uint8_t codestream::get_byte() {
-  const uint8_t byte = src[pos];
-  pos++;
+  const uint8_t byte = *src++;
   return byte;
 }
 
@@ -97,7 +96,7 @@ inline int codestream::packetheader_get_bits(int n) {
 
 inline void codestream::packetheader_flush_bits() {
   if (tmp == 0xFFu) {
-    pos++;
+    src++;
   }
   tmp  = 0;
   bits = 0;
@@ -105,18 +104,18 @@ inline void codestream::packetheader_flush_bits() {
 
 inline void codestream::move_forward(uint32_t n) {
   assert(bits == 0);
-  pos += n;
+  src += n;
 }
 
-inline const uint8_t *codestream::get_address() const { return src + pos; }
+inline const uint8_t *codestream::get_address() const { return src; }
 
-inline uint32_t codestream::get_pos() const { return pos; }
+inline uint32_t codestream::get_pos() const { return src - origin; }
 
 inline void codestream::reset(uint32_t p) {
   last = 0;
   bits = 0;
   tmp  = 0;
-  pos  = p;
+  src = origin + p;
 }
 
 

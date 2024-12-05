@@ -5,13 +5,13 @@
 
 #include "type.hpp"
 
-FILE *log_file = NULL;
+FILE *log_file = nullptr;
 FILE *get_log_file_fp() { return log_file; }
 void log_init(const char *file_name) { log_file = fopen(file_name, "w"); }
 void log_close() {
-  if (log_file != NULL) {
+  if (log_file != nullptr) {
     fclose(log_file);
-    log_file = NULL;
+    log_file = nullptr;
   }
 }
 
