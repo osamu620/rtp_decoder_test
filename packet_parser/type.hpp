@@ -33,6 +33,8 @@ public:
 
   uint32_t get_dword();
 
+  uint32_t get_bit();
+
   int packetheader_get_bits(int n);
 
   void packetheader_flush_bits();
@@ -49,8 +51,6 @@ public:
 
 inline uint8_t codestream::get_byte() {
   const uint8_t byte = src[pos];
-  tmp     = 0;
-  bits    = 0;
   pos++;
   return byte;
 }
@@ -69,15 +69,25 @@ inline uint32_t codestream::get_dword() {
   return dword;
 }
 
+inline uint32_t codestream::get_bit() {
+  if (bits == 0) {
+    bits = (tmp == 0xFF) ? 7 : 8;
+    last = tmp;
+    tmp  = get_byte();
+  }
+  bits--;
+  return (tmp >> bits) & 1;
+}
+
 inline int codestream::packetheader_get_bits(int n) {
   int res = 0;
 
   while (--n >= 0) {
     res <<= 1;
     if (bits == 0) {
+      bits = (tmp == 0xFF) ? 7 : 8;
       last = tmp;
       tmp  = get_byte();
-      bits = 7 + (last != 0xFFu);
     }
     bits--;
     res |= (tmp >> bits) & 1;
