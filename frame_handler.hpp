@@ -10,6 +10,8 @@
 #include <packet_parser/j2k_header.hpp>
 #include <packet_parser/j2k_tile.hpp>
 #include <packet_parser/utils.hpp>
+#include <arm_neon.h>
+
 namespace j2k {
 
 class frame_handler {
@@ -91,7 +93,16 @@ class frame_handler {
         TH.restart(start_SOD);
       }
     } else {
+#ifdef __ARM_NEON
+      for (int i = 0; i < size; i += 16) {
+        auto src = vld1q_u8(data + i);
+        vst1q_u8(this->incoming_data + incoming_data_len + i, src);
+      }
+      size_t s = size - size % 16;
+      std::memcpy(this->incoming_data + incoming_data_len + s, data + s, size % 16);
+#else
       std::memcpy(this->incoming_data + incoming_data_len, data, size);
+#endif
     }
     incoming_data_len += size;
     if (marker) {
@@ -115,7 +126,9 @@ class frame_handler {
     }
     total_frames++;
   }
+
+  s
 };
-}  // namespace j2k
+} // namespace j2k
 
 #endif  // FRAME_HANDLER_HPP

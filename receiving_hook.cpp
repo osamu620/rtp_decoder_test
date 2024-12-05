@@ -59,15 +59,15 @@ int main(int argc, char *argv[]) {
 
   j2k::frame_handler frame_handler(incoming_data);
   size_t total_frames = 0;
-  struct params_t params;
+  params_t params{};
   params.frame_handler = &frame_handler;
   params.total_frames  = total_frames;
 
   uvgrtp::context ctx;
   uvgrtp::session *sess          = ctx.create_session(LOCAL_ADDRESS);
-  int flags                      = RCE_RECEIVE_ONLY;
+  int flags                      = RCE_RECEIVE_ONLY | RCE_FRAGMENT_GENERIC;
   uvgrtp::media_stream *receiver = sess->create_stream(LOCAL_PORT, RTP_FORMAT_H265, flags);
-  // receiver->configure_ctx(RCC_UDP_RCV_BUF_SIZE, 8000000);
+  receiver->configure_ctx(RCC_UDP_RCV_BUF_SIZE, 8192 * 1024);
   // receiver->configure_ctx(RCC_RING_BUFFER_SIZE, 1600000);
   /* Receive hook can be installed and uvgRTP will call this hook when an RTP frame is received
    *
@@ -135,14 +135,9 @@ void rtp_receive_hook(void *arg, uvgrtp::frame::rtp_frame *frame) {
 
   size_t last_processed_frames = fh->get_total_frames();
   if (last_processed_frames - p->total_frames >= 30) {
-    printf("Processed frames: %5zu, %7.4f fps, trunc J2K frames = %3d, lost RTP frames = %3d\n",
+    printf("Processed frames: %5zu, %7.4f fps, trunc J2K frames = %3lu, lost RTP frames = %3lu\n",
            last_processed_frames, 1000.0 * (last_processed_frames - p->total_frames) / fh->get_duration(),
            fh->get_trunc_frames(), fh->get_lost_frames());
-    // std::cout << "Processed frames = " << std::setw(5) << last_processed_frames
-    //           << ", fps = " << std::setw(8)
-    //           << 1000.0 * (last_processed_frames - total_frames) / fh->get_duration()
-    //           << ", trunc = " << fh->get_trunc_frames() << ", lost = " << fh->get_lost_frames()
-    //           << std::endl;
     p->total_frames = last_processed_frames;
   }
   (void)uvgrtp::frame::dealloc_frame(frame);
