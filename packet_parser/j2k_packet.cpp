@@ -45,7 +45,7 @@ static int tag_tree_decode(codestream *buf, tagtree_node *node, int threshold) {
     if (curval < stack[sp]->val) curval = stack[sp]->val;
     while (curval < threshold) {
       int ret;
-      if ((ret = buf->packetheader_get_bits(1)) > 0) {
+      if ((ret = buf->get_bit()) > 0) {
         stack[sp]->vis++;
         break;
       } else if (!ret)
@@ -301,7 +301,7 @@ void parepare_tcomp_structure(tcomp_ *tcp, siz_marker *siz, coc_marker *coc, dfs
 
 static int getlblockinc(codestream *s) {
   int res = 0, ret;
-  while ((ret = s->packetheader_get_bits(1))) {
+  while ((ret = s->get_bit())) {
     if (ret < 0) return ret;
     res++;
   }
@@ -336,7 +336,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
           cblk->lblock = 3;
         }
       } else {
-        incl = s->packetheader_get_bits(1);
+        incl = s->get_bit();
       }
 
       if (incl) {
@@ -349,9 +349,9 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
         // int32_t newpasses_copy, npasses_copy;
         // Decode number of passes.
         newpasses = 1;
-        newpasses += s->packetheader_get_bits(1);
+        newpasses += s->get_bit();
         if (newpasses >= 2) {
-          newpasses += s->packetheader_get_bits(1);
+          newpasses += s->get_bit();
           if (newpasses >= 3) {
             newpasses += s->packetheader_get_bits(2);
             if (newpasses >= 6) {
@@ -451,7 +451,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
                   bits_to_read++;
                   pass_bound += pass_bound;
                   segment_bytes <<= 1;
-                  segment_bytes += s->packetheader_get_bits(1);
+                  segment_bytes += s->get_bit();
                 }
               }
             } else {
@@ -466,7 +466,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
                   bits_to_read++;
                   pass_bound += pass_bound;
                   segment_bytes <<= 1;
-                  segment_bytes += s->packetheader_get_bits(1);
+                  segment_bytes += s->get_bit();
                   if (pass_bound > segment_passes) break;
                 }
                 if (segment_bytes) {
@@ -613,9 +613,9 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
         bnum = b + 1;
       }
       // printf("%d,%d,%d\n", prec->res_num, bnum, cblk->length);
-      if (get_log_file_fp() != NULL) {
-        fprintf(log_file, "%d,%d,%d\n", prec->res_num, bnum, cblk->length);
-      }
+      // if (get_log_file_fp() != NULL) {
+      //   fprintf(log_file, "%d,%d,%d\n", prec->res_num, bnum, cblk->length);
+      // }
       s->move_forward(cblk->length);
     }
   }
@@ -626,6 +626,7 @@ int read_packet(codestream *buf, prec_ *prec, const coc_marker *coc) {
   [[maybe_unused]] uint16_t Lsop, Nsop;
   int ret;
 
+#ifdef USE_SOP_EPH
   if (prec->use_SOP) {
     uint16_t word = buf->get_word();
     if (word != SOP) {
@@ -639,11 +640,13 @@ int read_packet(codestream *buf, prec_ *prec, const coc_marker *coc) {
     }
     Nsop = buf->get_word();
   }
-  int bit = buf->packetheader_get_bits(1);
+#endif
+  int bit = buf->get_bit();
 
   if (bit == 0) {
     // if 0, empty packet
     buf->packetheader_flush_bits();  // flushing remaining bits of packet header
+#ifdef USE_SOP_EPH
     if (prec->use_EPH) {
       uint16_t word = buf->get_word();
       if (word != EPH) {
@@ -651,6 +654,7 @@ int read_packet(codestream *buf, prec_ *prec, const coc_marker *coc) {
         return EXIT_FAILURE;
       }
     }
+  #endif
     return EXIT_SUCCESS;
   }
   ret = parse_packet_header(buf, prec, coc);

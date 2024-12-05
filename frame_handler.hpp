@@ -106,16 +106,16 @@ class frame_handler {
     }
     incoming_data_len += size;
     if (marker) {
-      char buf[128];
-      snprintf(buf, 128, "out_%05lu.j2c", total_frames);
-      FILE* fp = fopen(buf, "wb");
-      fwrite(this->incoming_data, 1, incoming_data_len, fp);
-      fclose(fp);
+      // char buf[128];
+      // snprintf(buf, 128, "out_%05lu.j2c", total_frames);
+      // FILE* fp = fopen(buf, "wb");
+      // fwrite(this->incoming_data, 1, incoming_data_len, fp);
+      // fclose(fp);
 
-      snprintf(buf, 128, "log_%05lu.log", total_frames);
-      log_init(buf);
+      // snprintf(buf, 128, "log_%05lu.log", total_frames);
+      // log_init(buf);
       process();
-      log_close();
+      // log_close();
       // printf("%d bytes allocated\n", get_bytes_allocated());
     }
   }
@@ -126,8 +126,6 @@ class frame_handler {
     }
     total_frames++;
   }
-
-  s
 };
 } // namespace j2k
 

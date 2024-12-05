@@ -22,7 +22,7 @@
 
 #include <frame_handler.hpp>
 
-static uint8_t incoming_data[1024 * 2048];
+static uint8_t incoming_data[1024 * 4096];
 
 struct params_t {
   j2k::frame_handler *frame_handler;

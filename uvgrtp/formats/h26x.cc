@@ -639,21 +639,21 @@ rtp_error_t uvgrtp::formats::h26x::handle_aggregation_packet(uvgrtp::frame::rtp_
 
 bool uvgrtp::formats::h26x::is_duplicate_frame(uint32_t timestamp, uint16_t seq_num)
 {
-    if (received_info_.find(timestamp) != received_info_.end()) {
-        if (std::find(received_info_.at(timestamp).begin(), received_info_.at(timestamp).end(), seq_num) != received_info_.at(timestamp).end()) {
-            UVG_LOG_WARN("duplicate ts and seq num received, discarding frame");
-            return true;
-        }
-    }
+    // if (received_info_.find(timestamp) != received_info_.end()) {
+    //     if (std::find(received_info_.at(timestamp).begin(), received_info_.at(timestamp).end(), seq_num) != received_info_.at(timestamp).end()) {
+    //         UVG_LOG_WARN("duplicate ts and seq num received, discarding frame");
+    //         return true;
+    //     }
+    // }
     pkt_stats stats = {timestamp, seq_num};
 
-    // Save the received ts and seq num
-    if (received_info_.find(timestamp) == received_info_.end()) {
-        received_info_.insert({timestamp, {seq_num}});
-    }
-    else {
-        received_info_.at(timestamp).push_back(seq_num);
-    }
+    // // Save the received ts and seq num
+    // if (received_info_.find(timestamp) == received_info_.end()) {
+    //     received_info_.insert({timestamp, {seq_num}});
+    // }
+    // else {
+    //     received_info_.at(timestamp).push_back(seq_num);
+    // }
     received_frames_.push_back(stats);
 
     if (received_frames_.size() > RECEIVED_FRAMES) {
