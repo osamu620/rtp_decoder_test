@@ -2,6 +2,7 @@
 
 #include <thread>
 #include <iostream>
+#include <vector>
 
 /* There are two main ways of getting received RTP frames from uvgRTP.
  * This example demonstrates the usage of hook function to receive RTP frames.
@@ -67,9 +68,9 @@ int main(int argc, char *argv[]) {
   uvgrtp::session *sess          = ctx.create_session(LOCAL_ADDRESS);
   int flags                      = RCE_RECEIVE_ONLY | RCE_FRAGMENT_GENERIC;
   uvgrtp::media_stream *receiver = sess->create_stream(LOCAL_PORT, RTP_FORMAT_H265, flags);
-  receiver->configure_ctx(RCC_UDP_RCV_BUF_SIZE, 8192 * 1024);
+  receiver->configure_ctx(RCC_UDP_RCV_BUF_SIZE, 16384 * 1024);
   receiver->configure_ctx(RCC_MTU_SIZE, 4096);
-  // receiver->configure_ctx(RCC_RING_BUFFER_SIZE, 1600000);
+  receiver->configure_ctx(RCC_RING_BUFFER_SIZE, 8192 * 1024);
   /* Receive hook can be installed and uvgRTP will call this hook when an RTP frame is received
    *
    * This is a non-blocking operation

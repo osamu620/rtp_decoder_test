@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.19)
-project(rtp_decoder LANGUAGES C CXX DESCRIPTION "RTP decoder and JPEG 2000 codestream parser for hw decoder")
+project(rtp_decoder LANGUAGES CXX DESCRIPTION "RTP decoder and JPEG 2000 codestream parser for hw decoder")
 
-set(CMAKE_C_STANDARD 11)
+#set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
 set(CMAKE_CXX_FLAGS

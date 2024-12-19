@@ -93,7 +93,7 @@ class frame_handler {
         TH.restart(start_SOD);
       }
     } else {
-#ifdef __ARM_NEON
+#ifdef __ARM_NEON_2222222222
       for (int i = 0; i < size; i += 16) {
         auto src = vld1q_u8(data + i);
         vst1q_u8(this->incoming_data + incoming_data_len + i, src);
@@ -106,16 +106,16 @@ class frame_handler {
     }
     incoming_data_len += size;
     if (marker) {
-      // char buf[128];
+      char buf[128];
       // snprintf(buf, 128, "out_%05lu.j2c", total_frames);
       // FILE* fp = fopen(buf, "wb");
       // fwrite(this->incoming_data, 1, incoming_data_len, fp);
       // fclose(fp);
 
-      // snprintf(buf, 128, "log_%05lu.log", total_frames);
-      // log_init(buf);
+      snprintf(buf, 128, "log_%05lu.log", total_frames);
+      log_init(buf);
       process();
-      // log_close();
+      log_close();
       // printf("%d bytes allocated\n", get_bytes_allocated());
     }
   }
