@@ -120,15 +120,18 @@ void rtp_receive_hook(void *arg, uvgrtp::frame::rtp_frame *frame) {
   int C       = (pp[4] >> 5) & 1;
   int RSVD    = (pp[4] >> 1) & 0x7;
   int PRIMS   = pp[5];
-  int POS     = (((uint16_t)pp[4]) << 4) + (pp[5] >> 4);
-  int PID     = (((uint32_t)(pp[5] & 0x0F)) << 16) + (((uint32_t)pp[6]) << 8) + pp[7];
-  int TRANS   = pp[6];
-  int MAT     = pp[7];
+
+  uint32_t tmp = __builtin_bswap32(*(uint32_t *)(pp + 4));
+  uint32_t POS = tmp >> 20;
+  uint32_t PID = tmp & 0x000FFFFF;
+
+  int TRANS = pp[6];
+  int MAT   = pp[7];
 
   if (MH == 0) {
-    // body
-    // printf("RES = %d, QUAL = %d, ESEQ = %d, POS = %d, PID = %d, s = %d, c = %d, seq = %d\n", RES, QUAL,
-    //        ESEQ, POS, PID, PID / 3, PID % 3, ESEQ * 65536 + frame->header.seq);
+    // BODY
+    printf("RES = %d, QUAL = %d, ESEQ = %d, POS = %d, PID = %d, s = %d, c = %d, seq = %d\n", RES, QUAL,
+           ESEQ, POS, PID, PID / 3, PID % 3, ESEQ * 65536 + frame->header.seq);
   }
 
   auto p                 = (struct params_t *)arg;
