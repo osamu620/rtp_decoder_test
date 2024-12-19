@@ -2,7 +2,6 @@
 
 #include <thread>
 #include <iostream>
-#include <vector>
 
 /* There are two main ways of getting received RTP frames from uvgRTP.
  * This example demonstrates the usage of hook function to receive RTP frames.
