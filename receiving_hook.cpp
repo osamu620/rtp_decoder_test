@@ -127,11 +127,11 @@ void rtp_receive_hook(void *arg, uvgrtp::frame::rtp_frame *frame) {
   int TRANS = pp[6];
   int MAT   = pp[7];
 
-  if (MH == 0) {
-    // BODY
-    printf("RES = %d, QUAL = %d, ESEQ = %d, POS = %d, PID = %d, s = %d, c = %d, seq = %d\n", RES, QUAL,
-           ESEQ, POS, PID, PID / 3, PID % 3, ESEQ * 65536 + frame->header.seq);
-  }
+  // if (MH == 0) {
+  //   // BODY
+  //   printf("RES = %d, QUAL = %d, ESEQ = %d, POS = %d, PID = %d, s = %d, c = %d, seq = %d\n", RES, QUAL,
+  //          ESEQ, POS, PID, PID / 3, PID % 3, ESEQ * 65536 + frame->header.seq);
+  // }
 
   auto p                 = (struct params_t *)arg;
   j2k::frame_handler *fh = p->frame_handler;
