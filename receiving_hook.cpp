@@ -65,8 +65,8 @@ int main(int argc, char *argv[]) {
 
   uvgrtp::context ctx;
   uvgrtp::session *sess          = ctx.create_session(LOCAL_ADDRESS);
-  int flags                      = RCE_RECEIVE_ONLY | RCE_FRAGMENT_GENERIC;
-  uvgrtp::media_stream *receiver = sess->create_stream(LOCAL_PORT, RTP_FORMAT_H265, flags);
+  int flags                      = RCE_RECEIVE_ONLY;  // | RCE_FRAGMENT_GENERIC;
+  uvgrtp::media_stream *receiver = sess->create_stream(LOCAL_PORT, RTP_FORMAT_GENERIC, flags);
   receiver->configure_ctx(RCC_UDP_RCV_BUF_SIZE, 16384 * 1024);
   receiver->configure_ctx(RCC_MTU_SIZE, 4096);
   receiver->configure_ctx(RCC_RING_BUFFER_SIZE, 8192 * 1024);
@@ -95,6 +95,7 @@ int main(int argc, char *argv[]) {
 }
 
 void rtp_receive_hook(void *arg, uvgrtp::frame::rtp_frame *frame) {
+  constexpr ptrdiff_t OFFSET = 0;
   // std::cout << "Received RTP frame" << std::endl;
 
   /* Now we own the frame. Here you could give the frame to the application
@@ -103,7 +104,7 @@ void rtp_receive_hook(void *arg, uvgrtp::frame::rtp_frame *frame) {
    * arg->copy_frame(frame) or whatever
    *
    * When we're done with the frame, it must be deallocated manually */
-  uint8_t *pp = frame->payload + 4;
+  uint8_t *pp = frame->payload + OFFSET;
   //
   int MH      = pp[0] >> 6;
   int TP      = (pp[0] >> 3) & 0x7;
@@ -127,15 +128,18 @@ void rtp_receive_hook(void *arg, uvgrtp::frame::rtp_frame *frame) {
   int TRANS = pp[6];
   int MAT   = pp[7];
 
-  // if (MH == 0) {
-  //   // BODY
-  //   printf("RES = %d, QUAL = %d, ESEQ = %d, POS = %d, PID = %d, s = %d, c = %d, seq = %d\n", RES, QUAL,
-  //          ESEQ, POS, PID, PID / 3, PID % 3, ESEQ * 65536 + frame->header.seq);
-  // }
+  if (MH == 0) {
+    // // BODY
+    // printf("RES = %d, QUAL = %d, ESEQ = %d, POS = %d, PID = %d, s = %d, c = %d, seq = %d\n", RES, QUAL,
+    //        ESEQ, POS, PID, PID / 3, PID % 3, ESEQ * 65536 + frame->header.seq);
+  } else {
+    // HEADER
+    // printf("timestamp = %d\n", frame->header.timestamp);
+  }
 
   auto p                 = (struct params_t *)arg;
   j2k::frame_handler *fh = p->frame_handler;
-  fh->pull_data(frame->payload + 12, frame->payload_len - 12, MH, frame->header.marker);
+  fh->pull_data(pp + 8, frame->payload_len - 8, MH, frame->header.marker);
 
   size_t last_processed_frames = fh->get_total_frames();
   if (last_processed_frames - p->total_frames >= 30) {
