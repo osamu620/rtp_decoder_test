@@ -27,6 +27,7 @@ static uint8_t incoming_data[1024 * 4096];
 struct params_t {
   j2k::frame_handler *frame_handler;
   size_t total_frames;
+  uint32_t last_timetamp;
 };
 
 void rtp_receive_hook(void *arg, uvgrtp::frame::rtp_frame *frame);
@@ -62,13 +63,14 @@ int main(int argc, char *argv[]) {
   params_t params{};
   params.frame_handler = &frame_handler;
   params.total_frames  = total_frames;
+  params.last_timetamp = 0;
 
   uvgrtp::context ctx;
   uvgrtp::session *sess          = ctx.create_session(LOCAL_ADDRESS);
   int flags                      = RCE_RECEIVE_ONLY;  // | RCE_FRAGMENT_GENERIC;
   uvgrtp::media_stream *receiver = sess->create_stream(LOCAL_PORT, RTP_FORMAT_GENERIC, flags);
   receiver->configure_ctx(RCC_UDP_RCV_BUF_SIZE, 16384 * 1024);
-  receiver->configure_ctx(RCC_MTU_SIZE, 4096);
+  // receiver->configure_ctx(RCC_MTU_SIZE, 4096);
   receiver->configure_ctx(RCC_RING_BUFFER_SIZE, 8192 * 1024);
   /* Receive hook can be installed and uvgRTP will call this hook when an RTP frame is received
    *
@@ -105,6 +107,7 @@ void rtp_receive_hook(void *arg, uvgrtp::frame::rtp_frame *frame) {
    *
    * When we're done with the frame, it must be deallocated manually */
   uint8_t *pp = frame->payload + OFFSET;
+  uint32_t tmp;
   //
   int MH      = pp[0] >> 6;
   int TP      = (pp[0] >> 3) & 0x7;
@@ -113,7 +116,8 @@ void rtp_receive_hook(void *arg, uvgrtp::frame::rtp_frame *frame) {
   int P       = pp[1] >> 7;
   int XTRAC   = (pp[1] >> 4) & 0x7;
   int QUAL    = XTRAC;
-  int PTSTAMP = (((uint16_t)pp[1] & 0xF) << 8) + pp[2];
+  tmp         = __builtin_bswap32(*(uint32_t *)(pp));
+  int PTSTAMP = (tmp >> 8) & 0xFFF;
   int ESEQ    = pp[3];
   int R       = pp[4] >> 7;
   int S       = (pp[4] >> 6) & 1;
@@ -121,7 +125,7 @@ void rtp_receive_hook(void *arg, uvgrtp::frame::rtp_frame *frame) {
   int RSVD    = (pp[4] >> 1) & 0x7;
   int PRIMS   = pp[5];
 
-  uint32_t tmp = __builtin_bswap32(*(uint32_t *)(pp + 4));
+  tmp          = __builtin_bswap32(*(uint32_t *)(pp + 4));
   uint32_t POS = tmp >> 20;
   uint32_t PID = tmp & 0x000FFFFF;
 
@@ -142,11 +146,15 @@ void rtp_receive_hook(void *arg, uvgrtp::frame::rtp_frame *frame) {
   fh->pull_data(pp + 8, frame->payload_len - 8, MH, frame->header.marker);
 
   size_t last_processed_frames = fh->get_total_frames();
-  if (last_processed_frames - p->total_frames >= 30) {
+  if (p->last_timetamp == 0) {
+    p->last_timetamp = frame->header.timestamp;
+  }
+  if (frame->header.timestamp >= p->last_timetamp + 45000) {
     printf("Processed frames: %5zu, %7.4f fps, trunc J2K frames = %3lu, lost RTP frames = %3lu\n",
            last_processed_frames, 1000.0 * (last_processed_frames - p->total_frames) / fh->get_duration(),
            fh->get_trunc_frames(), fh->get_lost_frames());
-    p->total_frames = last_processed_frames;
+    p->total_frames  = last_processed_frames;
+    p->last_timetamp = frame->header.timestamp;
   }
   (void)uvgrtp::frame::dealloc_frame(frame);
 }

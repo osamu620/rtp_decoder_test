@@ -12,9 +12,10 @@
 #include <packet_parser/utils.hpp>
 #include <arm_neon.h>
 
-#define ENABLE_LOGGING
+// #define ENABLE_LOGGING
+// #define ENABLE_SAVEJ2C
+#define MEASURE_TIME
 
-// #define MEASURE_TIME
 namespace j2k {
 
 class frame_handler {
@@ -112,35 +113,38 @@ class frame_handler {
 #ifdef MEASURE_TIME
       auto start = std::chrono::high_resolution_clock::now();
 #endif
-#ifdef ENABLE_LOGGING
+#ifdef ENABLE_SAVEJ2C
       char buf[128];
       snprintf(buf, 128, "out_%05lu.j2c", total_frames);
       FILE *fp = fopen(buf, "wb");
       fwrite(this->incoming_data, 1, incoming_data_len, fp);
       fclose(fp);
-
-      snprintf(buf, 128, "log_%05lu.log", total_frames);
-      log_init(buf);
 #endif
 
       process();
-#ifdef ENABLE_LOGGING
-      log_close();
-#endif
+
 #ifdef MEASURE_TIME
       auto duration = std::chrono::high_resolution_clock::now() - start;
       auto count = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
       double time = count / 1000.0;
-      printf("elapsed time %-15.3lf[ms]\n", time);
+      printf("\relapsed time %-15.3lf[ms], ", time);
 #endif
       // printf("%d bytes allocated\n", get_bytes_allocated());
     }
   }
 
   void process() {
+#ifdef ENABLE_LOGGING
+    char buf[128];
+    snprintf(buf, 128, "log_%05lu.log", total_frames);
+    log_init(buf);
+#endif
     if (TH.read()) {
       trunc_frames++;
     }
+#ifdef ENABLE_LOGGING
+    log_close();
+#endif
     total_frames++;
   }
 };

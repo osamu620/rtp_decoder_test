@@ -413,7 +413,8 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
                 cblk->ht_plhd = HT_PLHD_OFF;
                 cblk->modes &= (uint8_t)(~(CMODE_HT));
               } else {
-                printf("Length information for a HT-codeblock is invalid\n");
+                printf("Length information %d for a HT-codeblock is invalid at %d\n", segment_bytes,
+                       __LINE__);
                 return EXIT_FAILURE;
               }
             }
@@ -428,7 +429,8 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
               if (!(cblk->modes & HT_MIXED)) {
                 // Must be the first HT Cleanup pass
                 if (segment_bytes < 2) {
-                  printf("Length information for a HT-codeblock is invalid\n");
+                  printf("Length information %d for a HT-codeblock is invalid at %d\n", segment_bytes,
+                         __LINE__);
                   return EXIT_FAILURE;
                 }
                 next_segment_passes = 2;
@@ -474,7 +476,8 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
                     cblk->modes &= (uint8_t)(~(CMODE_HT));
                     cblk->ht_plhd = HT_PLHD_OFF;
                   } else {
-                    printf("Length information for a HT-codeblock is invalid\n");
+                    printf("Length information %d for a HT-codeblock is invalid at %d\n", segment_bytes,
+                           __LINE__);
                     return EXIT_FAILURE;
                   }
                 }
@@ -484,7 +487,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
         } else if (cblk->modes & CMODE_HT) {
           // Quality layer commences with a non-initial HT coding pass
           if (bits_to_read != 0) {
-            printf("Length information for a HT-codeblock is invalid\n");
+            printf("Length information %d for a HT-codeblock is invalid at %d\n", segment_bytes, __LINE__);
             return EXIT_FAILURE;
           }
           segment_passes = cblk->npasses % 3;
@@ -492,7 +495,9 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
             // newpasses is a HT Cleanup pass; next segment has refinement passes
             segment_passes      = 1;
             next_segment_passes = 2;
-            if (segment_bytes == 1) printf("Length information for a HT-codeblock is invalid\n");
+            if (segment_bytes == 1)
+              printf("Length information %d for a HT-codeblock is invalid at %d\n", segment_bytes,
+                     __LINE__);
           } else {
             // newpasses = 1 means npasses is HT SigProp; 2 means newpasses is
             // HT MagRef pass
