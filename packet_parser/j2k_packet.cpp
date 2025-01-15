@@ -728,7 +728,6 @@ int read_tile(tile_ *tile, const coc_marker *cocs, const dfs_marker *dfs) {
                 prec_ *pp = &rp->prec[p];
                 ret       = read_packet(tile->buf, pp, coc);
                 if (ret) {
-                  tile->crp.clear();
                   return ret;
                 }
 
@@ -747,7 +746,6 @@ int read_tile(tile_ *tile, const coc_marker *cocs, const dfs_marker *dfs) {
           prec_ *pp = &tile->tcomp[tile->crp[i].c].res[tile->crp[i].r].prec[tile->crp[i].p];
           ret       = read_packet(tile->buf, pp, &cocs[tile->crp[i].c]);
           if (ret) {
-            tile->crp.clear();
             return ret;
           }
         }
