@@ -29,7 +29,7 @@ uvgrtp::frame::rtp_frame *uvgrtp::frame::alloc_rtp_frame(size_t payload_len) {
 
   if ((frame = uvgrtp::frame::alloc_rtp_frame()) == nullptr) return nullptr;
 
-  frame->payload     = new (std::align_val_t{8}) uint8_t[payload_len];
+  frame->payload     = new uint8_t[payload_len];
   frame->payload_len = payload_len;
 
   return frame;
