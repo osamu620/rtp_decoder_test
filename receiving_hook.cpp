@@ -22,7 +22,7 @@
 
 #include <frame_handler.hpp>
 
-alignas(8) static uint8_t incoming_data[1024 * 4096];
+static uint8_t incoming_data[1024 * 4096];
 
 struct params_t {
   j2k::frame_handler *frame_handler;
