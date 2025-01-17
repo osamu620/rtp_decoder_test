@@ -24,7 +24,7 @@ extern FILE *log_file;
 enum HT_PLHD_STATUS { HT_PLHD_OFF, HT_PLHD_ON };
 
 static int tag_tree_decode(codestream *buf, tagtree_node *node, int threshold) {
-  tagtree_node *stack[30];
+  tagtree_node *stack[1 /*30*/];  // sp is always equal to zero with KDU HW encoder
   int sp = -1, curval = 0;
 
   if (!node) {
@@ -324,7 +324,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
         incl = tag_tree_decode(s, pband->incl + cblkno, 0 + 1) == 0;
 
         if (incl) {
-          int zbp = tag_tree_decode(s, pband->zbp + cblkno, 32);
+          int zbp = tag_tree_decode(s, pband->zbp + cblkno, 14);
           // int v   = expn[bandno] + numgbits - 1 - (zbp - tile->comp->roi_shift);
           // if (v < 0 || v > 30) {
           //   av_log(s->avctx, AV_LOG_ERROR, "nonzerobits %d invalid or unsupported\n", v);
@@ -606,6 +606,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
       cblk->data = (uint8_t *)s->get_address();
       if (cblk->length) {
         // recover Scup and modDcup()
+        __builtin_prefetch(&cblk->data[cblk->pass_lengths[0] - 1], 0, 0);
         cblk->Scup =
             ((cblk->data[cblk->pass_lengths[0] - 1] << 4) + (cblk->data[cblk->pass_lengths[0] - 2] & 0x0F));
         // cblk->data[cblk->pass_lengths[0] - 1] = 0xFFu;

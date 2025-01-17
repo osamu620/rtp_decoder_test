@@ -12,8 +12,8 @@
 #include <packet_parser/utils.hpp>
 #include <arm_neon.h>
 
-// #define ENABLE_LOGGING
-// #define ENABLE_SAVEJ2C
+#define ENABLE_LOGGING
+#define ENABLE_SAVEJ2C
 #define MEASURE_TIME
 
 namespace j2k {
@@ -84,7 +84,8 @@ class frame_handler {
   void pull_data(uint8_t* data, size_t size, int MH, int marker) {
     if (MH >= 2) {
       incoming_data_len = 0;
-      std::memcpy(this->incoming_data + incoming_data_len, data, size);
+      // std::memcpy(this->incoming_data + incoming_data_len, data, size);
+      std::memcpy((uint32_t *) this->incoming_data + incoming_data_len / 4, (uint32_t *) data, size);
       if (!TH.is_ready()) {
         start_SOD =
             parse_main_header(&cs, TH.get_siz(), TH.get_cod(), TH.get_cocs(), TH.get_qcd(), TH.get_dfs());
@@ -105,7 +106,8 @@ class frame_handler {
       size_t s = size - size % 16;
       std::memcpy(this->incoming_data + incoming_data_len + s, data + s, size % 16);
 #else
-      std::memcpy(this->incoming_data + incoming_data_len, data, size);
+      // std::memcpy(this->incoming_data + incoming_data_len, data, size);
+      std::memcpy((uint32_t *) this->incoming_data + incoming_data_len / 4, (uint32_t *) data, size);
 #endif
     }
     incoming_data_len += size;
