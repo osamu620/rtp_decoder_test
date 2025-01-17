@@ -12,8 +12,8 @@
 #include <packet_parser/utils.hpp>
 #include <arm_neon.h>
 
-#define ENABLE_LOGGING
-#define ENABLE_SAVEJ2C
+// #define ENABLE_LOGGING
+// #define ENABLE_SAVEJ2C
 #define MEASURE_TIME
 
 namespace j2k {
