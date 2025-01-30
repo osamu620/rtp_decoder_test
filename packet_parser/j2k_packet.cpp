@@ -419,10 +419,11 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
               }
             }
           } else {
-            while (pass_bound <= segment_passes) {
-              bits_to_read++;
-              pass_bound += pass_bound;
-            }
+            // while (pass_bound <= segment_passes) {
+            //   bits_to_read++;
+            //   pass_bound += pass_bound;
+            // }
+            bits_to_read += 31 - __builtin_clz(segment_passes);
             segment_bytes = s->packetheader_get_bits(bits_to_read);
             if (segment_bytes) {
               // No more placeholder passes
@@ -606,7 +607,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
       cblk->data = (uint8_t *)s->get_address();
       if (cblk->length) {
         // recover Scup and modDcup()
-        __builtin_prefetch(&cblk->data[cblk->pass_lengths[0] - 1], 0, 0);
+        // __builtin_prefetch(&cblk->data[cblk->pass_lengths[0] - 1], 0, 0);
         cblk->Scup =
             ((cblk->data[cblk->pass_lengths[0] - 1] << 4) + (cblk->data[cblk->pass_lengths[0] - 2] & 0x0F));
         // cblk->data[cblk->pass_lengths[0] - 1] = 0xFFu;

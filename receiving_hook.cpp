@@ -141,7 +141,7 @@ void rtp_receive_hook(void *arg, uvgrtp::frame::rtp_frame *frame) {
     // printf("timestamp = %d\n", frame->header.timestamp);
   }
 
-  auto p                 = (struct params_t *)arg;
+  const auto p = static_cast<struct params_t *>(arg);
   j2k::frame_handler *fh = p->frame_handler;
   fh->pull_data(pp + 8, frame->payload_len - 8, MH, frame->header.marker);
 
