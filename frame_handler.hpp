@@ -10,7 +10,6 @@
 #include <packet_parser/j2k_header.hpp>
 #include <packet_parser/j2k_tile.hpp>
 #include <packet_parser/utils.hpp>
-#include <arm_neon.h>
 
 // #define ENABLE_LOGGING
 // #define ENABLE_SAVEJ2C
@@ -85,7 +84,7 @@ class frame_handler {
     if (MH >= 2) {
       incoming_data_len = 0;
       // std::memcpy(this->incoming_data + incoming_data_len, data, size);
-      std::memcpy((uint32_t *) this->incoming_data + incoming_data_len / 4, (uint32_t *) data, size);
+      std::memcpy(reinterpret_cast<uint32_t *>(this->incoming_data) + incoming_data_len / 4, (uint32_t *) data, size);
       if (!TH.is_ready()) {
         start_SOD =
             parse_main_header(&cs, TH.get_siz(), TH.get_cod(), TH.get_cocs(), TH.get_qcd(), TH.get_dfs());
@@ -98,17 +97,8 @@ class frame_handler {
         TH.restart(start_SOD);
       }
     } else {
-#ifdef __ARM_NEON_2222222222
-      for (int i = 0; i < size; i += 16) {
-        auto src = vld1q_u8(data + i);
-        vst1q_u8(this->incoming_data + incoming_data_len + i, src);
-      }
-      size_t s = size - size % 16;
-      std::memcpy(this->incoming_data + incoming_data_len + s, data + s, size % 16);
-#else
       // std::memcpy(this->incoming_data + incoming_data_len, data, size);
-      std::memcpy((uint32_t *) this->incoming_data + incoming_data_len / 4, (uint32_t *) data, size);
-#endif
+      std::memcpy(reinterpret_cast<uint32_t *>(this->incoming_data) + incoming_data_len / 4, (uint32_t *) data, size);
     }
     incoming_data_len += size;
     if (marker) {

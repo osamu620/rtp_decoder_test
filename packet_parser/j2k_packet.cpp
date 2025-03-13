@@ -686,7 +686,7 @@ int read_tile(tile_ *tile, const coc_marker *cocs, const dfs_marker *dfs) {
   // bool is_packet_read[3][6][4 * 270] = {false};
   switch (PO) {
     case PCRL:
-      if (tile->crp.empty()) {
+      if (tile->is_crp_complete == false) {
         step_x = 32;
         step_y = 32;
         for (uint32_t c = CS; c < CE; ++c) {
@@ -700,6 +700,7 @@ int read_tile(tile_ *tile, const coc_marker *cocs, const dfs_marker *dfs) {
         step_x = 1 << step_x;
         step_y = 1 << step_y;
 
+        size_t crp_index = 0;
         for (uint32_t y = tile->coord.y0; y < tile->coord.y1; y += step_y) {
           for (uint32_t x = tile->coord.x0; x < tile->coord.x1; x += step_x) {
             for (uint32_t c = CS; c < CE; ++c) {
@@ -724,13 +725,12 @@ int read_tile(tile_ *tile, const coc_marker *cocs, const dfs_marker *dfs) {
 
                 uint32_t p = py[c][r] * rp->npw + px[c][r];
                 // save identified precinct information as a sequence
-                crp_status tmp{(uint8_t)c, (uint8_t)r, (uint16_t)p};
-                tile->crp.push_back(tmp);
+                tile->crp[crp_index++] = {(uint8_t)c, (uint8_t)r, (uint16_t)p};
 
                 prec_ *pp = &rp->prec[p];
                 ret       = read_packet(tile->buf, pp, coc);
                 if (ret) {
-                  tile->crp.clear();
+                  // tile->crp.clear();
                   return ret;
                 }
 
@@ -743,13 +743,14 @@ int read_tile(tile_ *tile, const coc_marker *cocs, const dfs_marker *dfs) {
             }
           }
         }
+        tile->is_crp_complete = true;
       } else {
         // use saved sequence of precincts
         for (uint32_t i = 0; i < tile->crp.size(); ++i) {
           prec_ *pp = &tile->tcomp[tile->crp[i].c].res[tile->crp[i].r].prec[tile->crp[i].p];
           ret       = read_packet(tile->buf, pp, &cocs[tile->crp[i].c]);
           if (ret) {
-            tile->crp.clear();
+            // tile->crp.clear();
             return ret;
           }
         }
