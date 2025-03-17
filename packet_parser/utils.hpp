@@ -10,6 +10,6 @@
 
 FILE *get_log_file_fp();
 void log_init(const char *file_name);
+void log_put(const char *msg);
 void log_close();
-
 void *stackAlloc(size_t n, int reset);

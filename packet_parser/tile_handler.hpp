@@ -69,6 +69,7 @@ public:
           }
           parepare_tcomp_structure(tcp, &siz, coc, &dfs);
         }
+        prepare_precinct_structure(tile, cocs, &dfs);
       }
     }
     ready = true;
@@ -88,6 +89,7 @@ public:
   void restart(uint32_t start_SOD) {
     for (uint32_t t = 0; t < num_tiles_x * num_tiles_y; ++t) {
       tile_ *tile     = &tiles[t];
+      tile->crp_idx = 0;
       tile->buf->reset(start_SOD);
       for (uint32_t c = 0; c < tile->num_components; ++c) {
         tcomp_ *tcp = &(tile->tcomp[c]);

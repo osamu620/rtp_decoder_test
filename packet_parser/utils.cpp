@@ -8,6 +8,8 @@
 FILE *log_file = nullptr;
 FILE *get_log_file_fp() { return log_file; }
 void log_init(const char *file_name) { log_file = fopen(file_name, "w"); }
+void log_put(const char *msg) { fprintf(log_file, "%s\n", msg); }
+
 void log_close() {
   if (log_file != nullptr) {
     fclose(log_file);

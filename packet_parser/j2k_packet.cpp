@@ -765,3 +765,83 @@ int read_tile(tile_ *tile, const coc_marker *cocs, const dfs_marker *dfs) {
   }
   return EXIT_SUCCESS;
 }
+
+int prepare_precinct_structure(tile_ *tile, const coc_marker *cocs, const dfs_marker *dfs) {
+  int ret;
+  uint32_t PO, RS, RE;
+  [[maybe_unused]] uint32_t LYE, CS, CE;
+  int32_t step_x, step_y;
+
+  PO  = cocs[0].progression_order;  // tile->progression_order;
+  CS  = 0;                          // assume No POC marker
+  RS  = 0;                          // assume No POC marker
+  LYE = 1;                          // assume No Layer
+  CE  = 3;                          // tile->num_components;
+
+  uint32_t px[MAX_NUM_COMPONENTS][MAX_DWT_LEVEL + 1] = {0};
+  uint32_t py[MAX_NUM_COMPONENTS][MAX_DWT_LEVEL + 1] = {0};
+
+  // bool is_packet_read[3][6][4 * 270] = {false};
+  size_t crp_index = 0;
+  switch (PO) {
+    case PCRL:
+      step_x = 32;
+      step_y = 32;
+      for (uint32_t c = CS; c < CE; ++c) {
+        const coc_marker *coc = &cocs[c];
+        for (uint32_t r = RS; r < coc->NL + 1; ++r) {
+          step_x = LOCAL_MIN(step_x, coc->prw[r]);
+          step_y = LOCAL_MIN(step_y, coc->prh[r]);
+        }
+      }
+
+      step_x = 1 << step_x;
+      step_y = 1 << step_y;
+
+      for (uint32_t y = tile->coord.y0; y < tile->coord.y1; y += step_y) {
+        for (uint32_t x = tile->coord.x0; x < tile->coord.x1; x += step_x) {
+          for (uint32_t c = CS; c < CE; ++c) {
+            const coc_marker *coc = &cocs[c];
+            tcomp_ *tcp           = &(tile->tcomp[c]);
+            RE                    = coc->NL + 1;
+            for (uint32_t r = RS; r < RE; ++r) {
+              res_ *rp     = &tcp->res[r];
+              uint32_t xNL = dfs->hor_depth[coc->NL - r];  // get_hor_depth(coc->NL - r, dfs);
+              uint32_t yNL = dfs->ver_depth[coc->NL - r];  // get_ver_depth(coc->NL - r, dfs);
+
+              if (!((x % (tcp->sub_x * (1U << (coc->prw[r] + xNL))) == 0)
+                    || ((x == tile->coord.x0)
+                        && ((rp->coord.x0 * (1U << (xNL))) % (1U << (coc->prw[r] + xNL)) != 0)))) {
+                continue;
+              }
+              if (!((y % (tcp->sub_y * (1U << (coc->prh[r] + yNL))) == 0)
+                    || ((y == tile->coord.y0)
+                        && ((rp->coord.y0 * (1U << (yNL))) % (1U << (coc->prh[r] + yNL)) != 0)))) {
+                continue;
+              }
+
+              uint32_t p = py[c][r] * rp->npw + px[c][r];
+              // save identified precinct information as a sequence
+              tile->crp[crp_index++] = {(uint8_t)c, (uint8_t)r, (uint16_t)p};
+
+              px[c][r] += 1;
+              if (px[c][r] == rp->npw) {
+                px[c][r] = 0;
+                py[c][r] += 1;
+              }
+            }
+          }
+        }
+      }
+      tile->is_crp_complete = true;
+
+      break;
+
+    case PRCL:
+      break;
+    default:
+      printf("Only PCRL or PRCL are supported %d\n", PO);
+      break;
+  }
+  return EXIT_SUCCESS;
+}

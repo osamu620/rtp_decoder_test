@@ -8,65 +8,6 @@
 #include <cassert>
 #include <cstdlib>
 
-void create_tile(tile_ *tile, siz_marker *siz, coc_marker *cocs, dfs_marker *dfs) {
-  tile->progression_order = cocs[0].progression_order;
-  for (uint32_t c = 0; c < tile->num_components; ++c) {
-    tcomp_ *tcp     = &(tile->tcomp[c]);
-    tcp->idx        = c;
-    tcp->coord.x0   = ceildiv_int(tile->coord.x0, siz->XRsiz[c]);
-    tcp->coord.y0   = ceildiv_int(tile->coord.y0, siz->YRsiz[c]);
-    tcp->coord.x1   = ceildiv_int(tile->coord.x1, siz->XRsiz[c]);
-    tcp->coord.y1   = ceildiv_int(tile->coord.y1, siz->YRsiz[c]);
-    tcp->sub_x      = siz->XRsiz[c];
-    tcp->sub_y      = siz->YRsiz[c];
-    coc_marker *coc = &cocs[c];
-    if (coc->NL > 32) {
-      assert(dfs->idx == coc->NL - 128);
-      coc->NL = dfs->Idfs;
-    }
-    parepare_tcomp_structure(tcp, siz, coc, dfs);
-  }
-  // read_tile(tile, cocs, dfs);
-}
-
-tile_ *create_tiles(siz_marker *siz, coc_marker *cocs, dfs_marker *dfs, codestream *buf) {
-  const uint32_t numXtiles = ceildiv_int((siz->Xsiz - siz->XTOsiz), siz->XTsiz);
-  const uint32_t numYtiles = ceildiv_int((siz->Ysiz - siz->YTOsiz), siz->YTsiz);
-  // tile_ *tiles             = (tile_ *)calloc(numXtiles * numYtiles, sizeof(tile_));
-  tile_ *tiles = NULL;
-  if (numXtiles && numYtiles) tiles = (tile_ *)stackAlloc(numXtiles * numYtiles * sizeof(tile_), 0);
-#ifdef DEBUG
-  count_allocations(numXtiles * numYtiles * sizeof(tile_));
-#endif
-  for (uint32_t t = 0; t < numXtiles * numYtiles; ++t) {
-    tile_ *tile          = &tiles[t];
-    uint32_t p           = t % numXtiles;
-    uint32_t q           = t / numXtiles;
-    tile->buf            = buf;
-    tile->idx            = t;
-    tile->num_components = siz->Csiz;
-    tile->coord.x0       = LOCAL_MAX(siz->XTOsiz + p * siz->XTsiz, siz->XOsiz);
-    tile->coord.y0       = LOCAL_MAX(siz->YTOsiz + q * siz->YTsiz, siz->YOsiz);
-    tile->coord.x1       = LOCAL_MIN(siz->XTOsiz + (p + 1) * siz->XTsiz, siz->Xsiz);
-    tile->coord.y1       = LOCAL_MIN(siz->YTOsiz + (q + 1) * siz->YTsiz, siz->Ysiz);
-    create_tile(tile, siz, cocs, dfs);
-  }
-  return tiles;
-}
-
-int read_tiles(tile_ *tiles, const siz_marker *siz, const coc_marker *cocs, const dfs_marker *dfs) {
-  int ret;
-  const uint32_t numXtiles = ceildiv_int((siz->Xsiz - siz->XTOsiz), siz->XTsiz);
-  const uint32_t numYtiles = ceildiv_int((siz->Ysiz - siz->YTOsiz), siz->YTsiz);
-  for (uint32_t t = 0; t < numXtiles * numYtiles; ++t) {
-    ret = read_tile(&tiles[t], cocs, dfs);
-    if (ret) {
-      return ret;
-    }
-  }
-  return EXIT_SUCCESS;
-}
-
 void restart_tiles(tile_ *tiles, const siz_marker *siz) {
   const uint32_t numXtiles = ceildiv_int((siz->Xsiz - siz->XTOsiz), siz->XTsiz);
   const uint32_t numYtiles = ceildiv_int((siz->Ysiz - siz->YTOsiz), siz->YTsiz);

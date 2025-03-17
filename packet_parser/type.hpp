@@ -306,6 +306,7 @@ public:
   uint32_t num_components;
   uint32_t progression_order;
   std::vector<crp_status> crp;
+  int crp_idx;
   bool is_crp_complete;
 
   tile_(uint32_t t, uint32_t po) {
@@ -315,6 +316,7 @@ public:
     num_components = MAX_NUM_COMPONENTS;
     progression_order = po;
     crp.resize(1890 * 3);
+    crp_idx = 0;
     is_crp_complete = false;
   }
 };
