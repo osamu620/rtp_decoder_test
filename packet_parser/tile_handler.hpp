@@ -12,7 +12,7 @@
 #include "utils.hpp"
 
 class tile_hanlder {
-private:
+ private:
   std::vector<tile_> tiles;
   siz_marker siz;
   cod_marker cod;
@@ -23,21 +23,28 @@ private:
   uint32_t num_tiles_y;
   bool ready;
 
-public:
-  tile_hanlder() : tiles({}),siz({}),cod({}),cocs(), qcd({}),dfs({}), num_tiles_x(0), num_tiles_y(0), ready(false) {
-  }
-  siz_marker * get_siz() {return &siz;}
-  cod_marker *get_cod() {return &cod;}
-  coc_marker *get_cocs() {return cocs;}
-  qcd_marker *get_qcd() {return &qcd;}
-  dfs_marker *get_dfs() {return &dfs;}
-  bool is_ready() {return ready;}
+ public:
+  tile_hanlder()
+      : tiles({}),
+        siz({}),
+        cod({}),
+        cocs(),
+        qcd({}),
+        dfs({}),
+        num_tiles_x(0),
+        num_tiles_y(0),
+        ready(false) {}
+  siz_marker *get_siz() { return &siz; }
+  cod_marker *get_cod() { return &cod; }
+  coc_marker *get_cocs() { return cocs; }
+  qcd_marker *get_qcd() { return &qcd; }
+  dfs_marker *get_dfs() { return &dfs; }
+  bool is_ready() { return ready; }
   void create(codestream *buf) {
     num_tiles_x = ceildiv_int((siz.Xsiz - siz.XTOsiz), siz.XTsiz);
     num_tiles_y = ceildiv_int((siz.Ysiz - siz.YTOsiz), siz.YTsiz);
 
-    if (num_tiles_x && num_tiles_y)
-      tiles.reserve(num_tiles_x * num_tiles_y);
+    if (num_tiles_x && num_tiles_y) tiles.reserve(num_tiles_x * num_tiles_y);
 
     for (uint32_t t = 0; t < num_tiles_x && num_tiles_y; ++t) {
       tiles.emplace_back(t, cocs[0].progression_order);
@@ -75,6 +82,41 @@ public:
     ready = true;
   }
 
+  int parse(uint32_t PID) {
+    int ret = EXIT_SUCCESS;
+    tile_ *tile;
+    // for (uint32_t t = 0; t < this->num_tiles_x * this->num_tiles_y; ++t) {
+    tile = tiles.data();  // + t;
+
+    uint32_t s = PID / 3;
+    uint32_t c = PID % 3;
+    // char msg[128];
+    // sprintf(msg, "PID = %d", PID);
+    // log_put(msg);
+
+    for (int32_t i = PID - tile->crp_idx; i > 16; --i) {
+      ret = parse_one_precinct(tile, this->cocs);
+      tile->crp_idx++;
+      if (ret) {
+        break;
+      }
+    }
+    // }
+    return ret;
+  }
+
+  int flush() {
+    int ret     = EXIT_SUCCESS;
+    tile_ *tile = tiles.data();
+    for (; tile->crp_idx < 5670; tile->crp_idx++) {
+      ret = parse_one_precinct(tile, this->cocs);
+      if (ret) {
+        break;
+      }
+    }
+    return ret;
+  }
+
   int read() {
     int ret;
     for (uint32_t t = 0; t < this->num_tiles_x * this->num_tiles_y; ++t) {
@@ -88,7 +130,7 @@ public:
 
   void restart(uint32_t start_SOD) {
     for (uint32_t t = 0; t < num_tiles_x * num_tiles_y; ++t) {
-      tile_ *tile     = &tiles[t];
+      tile_ *tile   = &tiles[t];
       tile->crp_idx = 0;
       tile->buf->reset(start_SOD);
       for (uint32_t c = 0; c < tile->num_components; ++c) {
@@ -119,4 +161,4 @@ public:
   }
 };
 
-#endif //TILE_HANDLER_HPP
+#endif  // TILE_HANDLER_HPP

@@ -143,13 +143,15 @@ void rtp_receive_hook(void *arg, uvgrtp::frame::rtp_frame *frame) {
 
   const auto p           = static_cast<struct params_t *>(arg);
   j2k::frame_handler *fh = p->frame_handler;
-  fh->pull_data(pp + 8, frame->payload_len - 8, MH, frame->header.marker);
+  fh->pull_data(pp + 8, frame->payload_len - 8, MH, frame->header.marker, tmp);
 
   size_t last_processed_frames = fh->get_total_frames();
   if (p->last_timetamp == 0) {
     p->last_timetamp = frame->header.timestamp;
   }
   if (frame->header.timestamp >= p->last_timetamp + 45000) {
+    printf("Elapsed time: %-15.3lf[ms], ",
+           fh->get_cumlative_time_then_reset() / 1000.0 / ((last_processed_frames - p->total_frames)));
     printf("Processed frames: %5zu, %7.4f fps, trunc J2K frames = %3lu, lost RTP frames = %3lu\n",
            last_processed_frames, 1000.0 * (last_processed_frames - p->total_frames) / fh->get_duration(),
            fh->get_trunc_frames(), fh->get_lost_frames());

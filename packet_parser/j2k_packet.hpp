@@ -9,6 +9,8 @@
 
 void tag_tree_zero(tagtree_node *t, int w, int h, int val);
 int read_tile(tile_ *tile, const coc_marker *coc, const dfs_marker *dfs);
+int parse_one_precinct(tile_ *tile, const coc_marker *cocs);
+
 int prepare_precinct_structure(tile_ *tile, const coc_marker *coc, const dfs_marker *dfs);
 
 void parepare_tcomp_structure(tcomp_ *tcp, siz_marker *siz, coc_marker *coc, dfs_marker *dfs);

@@ -7,14 +7,24 @@
 
 FILE *log_file = nullptr;
 FILE *get_log_file_fp() { return log_file; }
-void log_init(const char *file_name) { log_file = fopen(file_name, "w"); }
-void log_put(const char *msg) { fprintf(log_file, "%s\n", msg); }
+void log_init(const char *file_name) {
+#ifdef ENABLE_LOGGING
+  log_file = fopen(file_name, "w");
+#endif
+}
+void log_put(const char *msg) {
+#ifdef ENABLE_LOGGING
+  fprintf(log_file, "%s\n", msg);
+#endif
+}
 
 void log_close() {
+#ifdef ENABLE_LOGGING
   if (log_file != nullptr) {
     fclose(log_file);
     log_file = nullptr;
   }
+#endif
 }
 
 uint32_t g_allocated_bytes = 0;

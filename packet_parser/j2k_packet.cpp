@@ -662,6 +662,7 @@ int read_packet(codestream *buf, prec_ *prec, const coc_marker *coc) {
       }
     }
 #endif
+    log_put("EMPTY****************************");
     return EXIT_SUCCESS;
   }
   ret = parse_packet_header(buf, prec, coc);
@@ -766,6 +767,13 @@ int read_tile(tile_ *tile, const coc_marker *cocs, const dfs_marker *dfs) {
   return EXIT_SUCCESS;
 }
 
+int parse_one_precinct(tile_ *tile, const coc_marker *cocs) {
+  crp_status ct = tile->crp[tile->crp_idx];
+  prec_ *pp     = &tile->tcomp[ct.c].res[ct.r].prec[ct.p];
+  int ret       = read_packet(tile->buf, pp, &cocs[ct.c]);
+  return ret;
+}
+
 int prepare_precinct_structure(tile_ *tile, const coc_marker *cocs, const dfs_marker *dfs) {
   int ret;
   uint32_t PO, RS, RE;
@@ -781,7 +789,6 @@ int prepare_precinct_structure(tile_ *tile, const coc_marker *cocs, const dfs_ma
   uint32_t px[MAX_NUM_COMPONENTS][MAX_DWT_LEVEL + 1] = {0};
   uint32_t py[MAX_NUM_COMPONENTS][MAX_DWT_LEVEL + 1] = {0};
 
-  // bool is_packet_read[3][6][4 * 270] = {false};
   size_t crp_index = 0;
   switch (PO) {
     case PCRL:
@@ -843,5 +850,8 @@ int prepare_precinct_structure(tile_ *tile, const coc_marker *cocs, const dfs_ma
       printf("Only PCRL or PRCL are supported %d\n", PO);
       break;
   }
+  // for (int i = 0; i < tile->crp.size(); ++i) {
+  //   printf("i = %d, c = %d, r = %d, p = %d\n", i, tile->crp[i].c, tile->crp[i].r, tile->crp[i].p);
+  // }
   return EXIT_SUCCESS;
 }

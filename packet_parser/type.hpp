@@ -16,16 +16,15 @@ uint32_t get_bytes_allocated(void);
 #define LOCAL_MIN(a, b) ((a) < (b)) ? (a) : (b)
 
 class codestream {
-private:
+ private:
   const uint8_t *origin;
   const unsigned char *src;
   uint8_t tmp;
   uint8_t last;
   uint8_t bits;
 
-public:
-  explicit codestream(uint8_t *buf) : origin(buf), src(buf), tmp(0), last(0), bits(0) {
-  }
+ public:
+  explicit codestream(uint8_t *buf) : origin(buf), src(buf), tmp(0), last(0), bits(0) {}
 
   uint8_t get_byte();
 
@@ -46,7 +45,6 @@ public:
   uint32_t get_pos() const;
 
   void reset(uint32_t p);
-
 };
 
 inline uint8_t codestream::get_byte() {
@@ -115,9 +113,8 @@ inline void codestream::reset(uint32_t p) {
   last = 0;
   bits = 0;
   tmp  = 0;
-  src = origin + p;
+  src  = origin + p;
 }
-
 
 // typedef struct {
 //   uint32_t MainRESET;
@@ -298,7 +295,7 @@ struct crp_status {
 };
 
 class tile_ {
-public:
+ public:
   tcomp_ tcomp[MAX_NUM_COMPONENTS];
   codestream *buf;
   uint32_t idx;
@@ -310,13 +307,13 @@ public:
   bool is_crp_complete;
 
   tile_(uint32_t t, uint32_t po) {
-    buf = nullptr;
-    idx = t;
-    coord = {};
-    num_components = MAX_NUM_COMPONENTS;
+    buf               = nullptr;
+    idx               = t;
+    coord             = {};
+    num_components    = MAX_NUM_COMPONENTS;
     progression_order = po;
     crp.resize(1890 * 3);
-    crp_idx = 0;
+    crp_idx         = 0;
     is_crp_complete = false;
   }
 };
