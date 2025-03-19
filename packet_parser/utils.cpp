@@ -7,9 +7,11 @@
 
 FILE *log_file = nullptr;
 FILE *get_log_file_fp() { return log_file; }
-void log_init(const char *file_name) {
+void log_init(const size_t num_frame) {
 #ifdef ENABLE_LOGGING
-  log_file = fopen(file_name, "w");
+  char buf[128];
+  snprintf(buf, 128, "log_%05lu.log", num_frame);
+  log_file = fopen(buf, "w");
 #endif
 }
 void log_put(const char *msg) {
@@ -24,6 +26,16 @@ void log_close() {
     fclose(log_file);
     log_file = nullptr;
   }
+#endif
+}
+
+void save_j2c(const size_t num_frame, const uint8_t *incoming_data, const size_t incoming_data_len) {
+#ifdef ENABLE_SAVEJ2C
+  char buf[128];
+  snprintf(buf, 128, "out_%05lu.j2c", num_frame);
+  FILE *fp = fopen(buf, "wb");
+  fwrite(incoming_data, 1, incoming_data_len, fp);
+  fclose(fp);
 #endif
 }
 

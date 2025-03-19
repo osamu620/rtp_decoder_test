@@ -2,6 +2,7 @@
 
 #include <thread>
 #include <iostream>
+#include <iomanip>
 
 /* There are two main ways of getting received RTP frames from uvgRTP.
  * This example demonstrates the usage of hook function to receive RTP frames.
@@ -107,30 +108,27 @@ void rtp_receive_hook(void *arg, uvgrtp::frame::rtp_frame *frame) {
    *
    * When we're done with the frame, it must be deallocated manually */
   uint8_t *pp = frame->payload + OFFSET;
-  uint32_t tmp;
+  uint32_t RTP_header_val;
   //
-  int MH      = pp[0] >> 6;
-  int TP      = (pp[0] >> 3) & 0x7;
-  int ORDH    = pp[0] & 0x7;
-  int RES     = ORDH;
-  int P       = pp[1] >> 7;
-  int XTRAC   = (pp[1] >> 4) & 0x7;
-  int QUAL    = XTRAC;
-  tmp         = __builtin_bswap32(*(uint32_t *)(pp));
-  int PTSTAMP = (tmp >> 8) & 0xFFF;
-  int ESEQ    = pp[3];
-  int R       = pp[4] >> 7;
-  int S       = (pp[4] >> 6) & 1;
-  int C       = (pp[4] >> 5) & 1;
-  int RSVD    = (pp[4] >> 1) & 0x7;
-  int PRIMS   = pp[5];
+  int MH = pp[0] >> 6;
+  // int TP      = (pp[0] >> 3) & 0x7;
+  // int ORDH    = pp[0] & 0x7;
+  // int RES     = ORDH;
+  // int P       = pp[1] >> 7;
+  // int XTRAC   = (pp[1] >> 4) & 0x7;
+  // int QUAL    = XTRAC;
+  // tmp         = __builtin_bswap32(*(uint32_t *)(pp));
+  // int PTSTAMP = (tmp >> 8) & 0xFFF;
+  // int ESEQ    = pp[3];
+  // int R       = pp[4] >> 7;
+  // int S       = (pp[4] >> 6) & 1;
+  // int C       = (pp[4] >> 5) & 1;
+  // int RSVD    = (pp[4] >> 1) & 0x7;
+  // int PRIMS   = pp[5];
+  // int TRANS   = pp[6];
+  // int MAT     = pp[7];
 
-  tmp          = __builtin_bswap32(*(uint32_t *)(pp + 4));
-  uint32_t POS = tmp >> 20;
-  uint32_t PID = tmp & 0x000FFFFF;
-
-  int TRANS = pp[6];
-  int MAT   = pp[7];
+  RTP_header_val = __builtin_bswap32(*(uint32_t *)(pp + 4));
 
   if (MH == 0) {
     // // BODY
@@ -143,18 +141,29 @@ void rtp_receive_hook(void *arg, uvgrtp::frame::rtp_frame *frame) {
 
   const auto p           = static_cast<struct params_t *>(arg);
   j2k::frame_handler *fh = p->frame_handler;
-  fh->pull_data(pp + 8, frame->payload_len - 8, MH, frame->header.marker, tmp);
+  fh->pull_data(pp + 8, frame->payload_len - 8, MH, frame->header.marker, RTP_header_val);
 
   size_t last_processed_frames = fh->get_total_frames();
   if (p->last_timetamp == 0) {
     p->last_timetamp = frame->header.timestamp;
   }
   if (frame->header.timestamp >= p->last_timetamp + 45000) {
-    printf("Elapsed time: %-15.3lf[ms], ",
-           fh->get_cumlative_time_then_reset() / 1000.0 / ((last_processed_frames - p->total_frames)));
-    printf("Processed frames: %5zu, %7.4f fps, trunc J2K frames = %3lu, lost RTP frames = %3lu\n",
-           last_processed_frames, 1000.0 * (last_processed_frames - p->total_frames) / fh->get_duration(),
-           fh->get_trunc_frames(), fh->get_lost_frames());
+    std::cout << "Elapsed time: " << std::left << std::setw(8) << std::right << std::fixed
+              << std::setprecision(3)
+              << (fh->get_cumlative_time_then_reset() / 1000.0
+                  / ((last_processed_frames - p->total_frames)))
+              << " [ms/frame], ";
+
+    std::cout << "Processed frames: " << std::setw(7) << last_processed_frames << ", " << std::setw(7)
+              << std::fixed << std::setprecision(4)
+              << (1000.0 * (last_processed_frames - p->total_frames) / fh->get_duration()) << " fps, "
+              << "trunc J2K frames = " << std::setw(5) << fh->get_trunc_frames() << ", "
+              << "lost RTP frames = " << std::setw(5) << fh->get_lost_frames() << std::endl;
+    // printf("Elapsed time: %-15.3lf[ms], ",
+    //        fh->get_cumlative_time_then_reset() / 1000.0 / ((last_processed_frames - p->total_frames)));
+    // printf("Processed frames: %5zu, %7.4f fps, trunc J2K frames = %3lu, lost RTP frames = %3lu\n",
+    //        last_processed_frames, 1000.0 * (last_processed_frames - p->total_frames) /
+    //        fh->get_duration(), fh->get_trunc_frames(), fh->get_lost_frames());
     p->total_frames  = last_processed_frames;
     p->last_timetamp = frame->header.timestamp;
   }

@@ -11,8 +11,15 @@
 #include <packet_parser/j2k_tile.hpp>
 #include <packet_parser/utils.hpp>
 
-#define ENABLE_SAVEJ2C
-#define MEASURE_TIME
+#define ACTION(func, ...)                                                         \
+  auto st = std::chrono::high_resolution_clock::now();                            \
+  if (tile_hndr.func(__VA_ARGS__)) {                                              \
+    log_put("**************** FAILURE");                                          \
+    is_parsing_failure = 1;                                                       \
+  }                                                                               \
+  auto dr    = std::chrono::high_resolution_clock::now() - st;                    \
+  auto count = std::chrono::duration_cast<std::chrono::microseconds>(dr).count(); \
+  cumlative_time += static_cast<double>(count)
 
 namespace j2k {
 class frame_handler {
@@ -96,17 +103,19 @@ class frame_handler {
     // std::memcpy(this->incoming_data + incoming_data_len, data, size);
     std::memcpy(reinterpret_cast<uint32_t *>(this->incoming_data) + incoming_data_len / 4, (uint32_t *)data,
                 size);
-    if (MH >= 2) {
-      char buf[128];
-      snprintf(buf, 128, "log_%05lu.log", total_frames);
-      log_init(buf);
+    if (MH >= 1) {  // MH >=1 means this RTP packet is Main packet.
+      log_init(total_frames);
       incoming_data_len = 0;
       if (!tile_hndr.is_ready()) {
-        start_SOD = parse_main_header(&cs, tile_hndr.get_siz(), tile_hndr.get_cod(), tile_hndr.get_cocs(),
-                                      tile_hndr.get_qcd(), tile_hndr.get_dfs());
-        tile_hndr.create(&cs);
+        if (MH >= 2) {  // MH >= 2 means all the Main packet has been received.
+          start_SOD = parse_main_header(&cs, tile_hndr.get_siz(), tile_hndr.get_cod(), tile_hndr.get_cocs(),
+                                        tile_hndr.get_qcd(), tile_hndr.get_dfs());
+          tile_hndr.create(&cs);
+        } else {
+          start_SOD += size;
+        }
         if (start_SOD == 0) {
-          return;
+          return;  // something wrong
         }
       } else {
         // skip main header parsing (re-use)
@@ -115,40 +124,22 @@ class frame_handler {
     }
 
     incoming_data_len += size;
-    if (POS && MH == 0 && !is_parsing_failure) {
-      auto st = std::chrono::high_resolution_clock::now();
-      if (tile_hndr.parse(PID)) {
-        log_put("**************** FAILURE");
-        is_parsing_failure = 1;
-        trunc_frames++;
-      }
-      auto dr    = std::chrono::high_resolution_clock::now() - st;
-      auto count = std::chrono::duration_cast<std::chrono::microseconds>(dr).count();
-      cumlative_time += static_cast<double>(count);
+    if (POS && MH == 0 && !is_parsing_failure && tile_hndr.is_ready()) {
+      ACTION(parse, PID);
     }
-    if (marker) {
-      auto st = std::chrono::high_resolution_clock::now();
-      if (tile_hndr.flush()) {
-        log_put("**************** FAILURE");
-        is_parsing_failure = 1;
-        trunc_frames++;
-      }
-      auto dr    = std::chrono::high_resolution_clock::now() - st;
-      auto count = std::chrono::duration_cast<std::chrono::microseconds>(dr).count();
-      cumlative_time += static_cast<double>(count);
-#ifdef ENABLE_SAVEJ2C
-      char buf[128];
-      snprintf(buf, 128, "out_%05lu.j2c", total_frames);
-      FILE *fp = fopen(buf, "wb");
-      fwrite(this->incoming_data, 1, incoming_data_len, fp);
-      fclose(fp);
-#endif
 
-      is_parsing_failure = 0;
+    if (marker) {  // when EOC comes
+      if (!is_parsing_failure && tile_hndr.is_ready()) {
+        ACTION(flush);
+      }
+      trunc_frames += is_parsing_failure;
+      total_frames++;
+
+      save_j2c(total_frames, this->incoming_data, incoming_data_len);
       log_close();
+      is_parsing_failure = 0;
 
       // printf("%d bytes allocated\n", get_bytes_allocated());
-      total_frames++;
     }
   }
 };
