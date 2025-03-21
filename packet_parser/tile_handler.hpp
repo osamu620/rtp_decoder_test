@@ -85,14 +85,13 @@ class tile_hanlder {
   int parse(uint32_t PID) {
     int ret = EXIT_SUCCESS;
     tile_ *tile;
+    // This loop is omitted for speed
     // for (uint32_t t = 0; t < this->num_tiles_x * this->num_tiles_y; ++t) {
     tile = tiles.data();  // + t;
 
-    uint32_t s = PID / 3;
-    uint32_t c = PID % 3;
-    // char msg[128];
-    // sprintf(msg, "PID = %d", PID);
-    // log_put(msg);
+    // Detail information of PID
+    // uint32_t s = PID / 3;
+    // uint32_t c = PID % 3;
 
     for (int32_t i = PID - tile->crp_idx; i > 16; --i) {
       ret = parse_one_precinct(tile, this->cocs);
@@ -101,7 +100,7 @@ class tile_hanlder {
         break;
       }
     }
-    // }
+    // } // This loop is omitted for speed
     return ret;
   }
 

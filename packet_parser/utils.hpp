@@ -8,8 +8,8 @@
 
 #define int_log2(x) (31 - __builtin_clz((x) | 1))
 
-#define ENABLE_SAVEJ2C
-#define ENABLE_LOGGING
+// #define ENABLE_SAVEJ2C
+// #define ENABLE_LOGGING
 
 FILE *get_log_file_fp();
 void log_init(const size_t num_frame);

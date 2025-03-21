@@ -316,28 +316,28 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
       blk_ *cblk = pband->blk + cblkno;
       int incl, newpasses, llen;
 
-      if (!cblk->incl) {
-        incl        = 0;
-        cblk->modes = coc->cbs;
-        if (cblk->modes >= CMODE_HT) cblk->ht_plhd = HT_PLHD_ON;
-        // if (layno > 0) incl = tag_tree_decode(s, prec->cblkincl + cblkno, 0 + 1) == 0;
-        incl = tag_tree_decode(s, pband->incl + cblkno, 0 + 1) == 0;
+      // if (!cblk->incl) { // *** THIS IF STATEMENT IS OMITTED FOR SPEED
+      incl        = 0;
+      cblk->modes = coc->cbs;
+      if (cblk->modes >= CMODE_HT) cblk->ht_plhd = HT_PLHD_ON;
+      // if (layno > 0) incl = tag_tree_decode(s, prec->cblkincl + cblkno, 0 + 1) == 0;
+      incl = tag_tree_decode(s, pband->incl + cblkno, 0 + 1) == 0;
 
-        if (incl) {
-          int zbp = tag_tree_decode(s, pband->zbp + cblkno, 14);
-          // int v   = expn[bandno] + numgbits - 1 - (zbp - tile->comp->roi_shift);
-          // if (v < 0 || v > 30) {
-          //   av_log(s->avctx, AV_LOG_ERROR, "nonzerobits %d invalid or unsupported\n", v);
-          //   return AVERROR_INVALIDDATA;
-          // }
-          cblk->incl = 1;
-          // cblk->nonzerobits = v;
-          cblk->zbp    = zbp;
-          cblk->lblock = 3;
-        }
-      } else {
-        incl = s->get_bit();
+      if (incl) {
+        int zbp = tag_tree_decode(s, pband->zbp + cblkno, 14);
+        // int v   = expn[bandno] + numgbits - 1 - (zbp - tile->comp->roi_shift);
+        // if (v < 0 || v > 30) {
+        //   av_log(s->avctx, AV_LOG_ERROR, "nonzerobits %d invalid or unsupported\n", v);
+        //   return AVERROR_INVALIDDATA;
+        // }
+        cblk->incl = 1;
+        // cblk->nonzerobits = v;
+        cblk->zbp    = zbp;
+        cblk->lblock = 3;
       }
+      // } else { // *** THIS IF STATEMENT IS OMITTED FOR SPEED
+      // incl = s->get_bit(); // *** THIS IF STATEMENT IS OMITTED FOR SPEED
+      // } // *** THIS IF STATEMENT IS OMITTED FOR SPEED
 
       if (incl) {
         uint8_t bypass_term_threshold = 0;
