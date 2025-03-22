@@ -242,9 +242,9 @@ struct blk_ {
 typedef struct tagtree_node tagtree_node;
 
 struct tagtree_node {
-  uint8_t val;
-  uint8_t temp_val;
-  uint8_t vis;
+  uint32_t val;
+  uint32_t temp_val;
+  uint32_t vis;
   tagtree_node *parent;
 };
 

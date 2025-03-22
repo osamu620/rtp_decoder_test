@@ -27,13 +27,14 @@ static int tag_tree_decode(codestream *buf, tagtree_node *node, int threshold) {
   tagtree_node *stack[1 /*30*/];  // sp is always equal to zero with KDU HW encoder
   int sp = -1, curval = 0;
 
-  if (!node) {
+  if (node == NULL) {
     return 1;
   }
 
-  while (node && !node->vis) {
+  while (!node->vis) {
     stack[++sp] = node;
     node        = node->parent;
+    if (node == NULL) break;
   }
 
   if (node)
