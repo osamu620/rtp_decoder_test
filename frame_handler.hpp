@@ -98,7 +98,7 @@ class frame_handler {
   //     cs.tmp            = 0;
   //   }
 
-  void pull_data(uint8_t *data, size_t size, int MH, int marker, uint32_t POS_PID) {
+  void pull_data(uint8_t *__restrict__ data, size_t size, int MH, int marker, uint32_t POS_PID) {
     const uint32_t POS = POS_PID >> 20;
     const uint32_t PID = POS_PID & 0x000FFFFF;
 

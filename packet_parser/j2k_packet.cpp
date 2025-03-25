@@ -4,7 +4,7 @@
 
 #include <cstdio>
 #include <cstdlib>
-// #include <cstring>
+#include <cstring>
 
 #include "j2k_packet.hpp"
 
