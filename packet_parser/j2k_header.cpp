@@ -225,7 +225,7 @@ static int parse_DFS(codestream *buf, dfs_marker *dfs) {
 
   uint32_t ho[4] = {0, 0, 0, 1};
   uint32_t vo[4] = {0, 0, 1, 0};
-  for (uint8_t i = dfs->Idfs; i > 0; --i) {
+  for (uint32_t i = dfs->Idfs; i > 0; --i) {
     dfs->type[i]     = bits & 0x3;  // i start from 1 because we skip lowest LL or LX
     dfs->h_orient[i] = ho[dfs->type[i]];
     dfs->v_orient[i] = vo[dfs->type[i]];

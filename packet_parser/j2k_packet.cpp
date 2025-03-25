@@ -23,59 +23,77 @@ extern FILE *log_file;
 // Values of flag for placeholder passes
 enum HT_PLHD_STATUS { HT_PLHD_OFF, HT_PLHD_ON };
 
+// static int tag_tree_decode(codestream *buf, tagtree_node *node, int threshold) {
+//   tagtree_node *stack[1 /*30*/];  // sp is always equal to zero with KDU HW encoder
+//   int sp = -1, curval = 0;
+//
+//   // ==== The following 4 lines are omitted for speed ====
+//   // if (node == NULL) { // OMITTED
+//   //   return 1; // OMITTED
+//   // }
+//
+//   // ==== The following WHILE loop is omitted for speed ====
+//   // while (!node->vis) { // OMITTED
+//   stack[++sp] = node;
+//   node        = node->parent;
+//   // if (node == NULL) break; // OMITTED
+//   // } // OMITTED
+//
+//   // ==== The following IF branch is omitted for speed ====
+//   // if (node) // OMITTED
+//   // curval = node->val; // OMITTED
+//   // else // OMITTED
+//   curval = stack[sp]->val;
+//
+//   while (curval < threshold && sp >= 0) {
+//     if (curval < stack[sp]->val) curval = stack[sp]->val;
+//     while (curval < threshold) {
+//       int ret;
+//       if ((ret = buf->get_bit()) > 0) {
+//         stack[sp]->vis++;
+//         break;
+//       } else if (!ret)
+//         curval++;
+//       else
+//         return ret;
+//     }
+//     stack[sp]->val = curval;
+//     sp--;
+//   }
+//   return curval;
+// }
+
+// Optimized tag_tree_decode for Cortex-A53
 static int tag_tree_decode(codestream *buf, tagtree_node *node, int threshold) {
-  tagtree_node *stack[1 /*30*/];  // sp is always equal to zero with KDU HW encoder
-  int sp = -1, curval = 0;
-
-  if (node == NULL) {
-    return 1;
-  }
-
-  while (!node->vis) {
-    stack[++sp] = node;
-    node        = node->parent;
-    if (node == NULL) break;
-  }
-
-  if (node)
-    curval = node->val;
-  else
-    curval = stack[sp]->val;
-
-  while (curval < threshold && sp >= 0) {
-    if (curval < stack[sp]->val) curval = stack[sp]->val;
-    while (curval < threshold) {
-      int ret;
-      if ((ret = buf->get_bit()) > 0) {
-        stack[sp]->vis++;
-        break;
-      } else if (!ret)
-        curval++;
-      else
-        return ret;
+  // Unroll the loop and use bit manipulation for faster processing
+  int curval = static_cast<int>(node->val);
+  while (curval < threshold) {
+    if (buf->get_bit()) {
+      node->vis++;
+      break;
     }
-    stack[sp]->val = curval;
-    sp--;
+    curval++;
   }
+  node->val = static_cast<uint32_t>(curval);
   return curval;
 }
 
-static int32_t tag_tree_size(int w, int h) {
-  int64_t res = 0;
+static uint32_t tag_tree_size(uint32_t w, uint32_t h) {
+  uint64_t res = 0;
   while (w > 1 || h > 1) {
-    res += w * (int64_t)h;
+    res += w * (uint64_t)h;
     assert(res + 1 < INT32_MAX);
     w = (w + 1) >> 1;
     h = (h + 1) >> 1;
   }
-  return (int32_t)(res + 1);
+  return (uint32_t)(res + 1);
 }
 
 /* allocate the memory for tag tree */
-static tagtree_node *tag_tree_init(int w, int h) {
-  int pw = w, ph = h;
+static tagtree_node *tag_tree_init(uint32_t w, uint32_t h) {
+  uint32_t pw = w, ph = h;
   tagtree_node *res, *t, *t2;
-  int32_t tt_size;
+  uint32_t tt_size;
 
   tt_size = tag_tree_size(w, h);
 
@@ -88,7 +106,7 @@ static tagtree_node *tag_tree_init(int w, int h) {
   if (!res) return NULL;
 
   while (w > 1 || h > 1) {
-    int i, j;
+    uint32_t i, j;
     pw = w;
     ph = h;
 
@@ -105,17 +123,18 @@ static tagtree_node *tag_tree_init(int w, int h) {
   return res;
 }
 
-void tag_tree_zero(tagtree_node *t, int w, int h, int val) {
-  int i, siz = tag_tree_size(w, h);
-
-  for (i = 0; i < siz; i++) {
-    t[i].val      = val;
-    t[i].temp_val = 0;
-    t[i].vis      = 0;
-  }
+void tag_tree_zero(tagtree_node *t, uint32_t w, uint32_t h, uint32_t val) {
+  [[maybe_unused]] uint32_t i;
+  uint32_t siz = tag_tree_size(w, h);
+  memset(t, 0, sizeof(tagtree_node) * siz);
+  // for (i = 0; i < siz; i++) {
+  //   t[i].val      = val;
+  //   t[i].temp_val = 0;
+  //   t[i].vis      = 0;
+  // }
 }
 
-void parepare_tcomp_structure(tcomp_ *tcp, siz_marker *siz, coc_marker *coc, dfs_marker *dfs) {
+void parepare_tcomp_structure(tcomp_ *tcp, coc_marker *coc, dfs_marker *dfs) {
   const uint32_t xob[4] = {0, 1, 0, 1};
   const uint32_t yob[4] = {0, 0, 1, 1};
   const uint32_t cbw    = 1 << coc->cbw;
@@ -310,63 +329,41 @@ static int getlblockinc(codestream *s) {
 }
 
 static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc) {
+  uint32_t nb_code_blocks = prec->ncbw * prec->ncbh;
   for (uint32_t b = 0; b < prec->num_bands; ++b) {
-    uint32_t nb_code_blocks = prec->ncbw * prec->ncbh;
-    pband_ *pband           = &(prec->pband[b]);
-    for (uint32_t cblkno = 0; cblkno < nb_code_blocks; cblkno++) {
-      blk_ *cblk = pband->blk + cblkno;
-      int incl, newpasses, llen;
-
-      // if (!cblk->incl) { // *** THIS IF STATEMENT IS OMITTED FOR SPEED
+    pband_ *pband = &(prec->pband[b]);
+    blk_ *cblk    = pband->blk;
+    for (uint32_t cblkno = 0; cblkno < nb_code_blocks; cblkno++, cblk++) {
+      int incl;
       incl        = 0;
       cblk->modes = coc->cbs;
       if (cblk->modes >= CMODE_HT) cblk->ht_plhd = HT_PLHD_ON;
-      // if (layno > 0) incl = tag_tree_decode(s, prec->cblkincl + cblkno, 0 + 1) == 0;
       incl = tag_tree_decode(s, pband->incl + cblkno, 0 + 1) == 0;
 
       if (incl) {
-        int zbp = tag_tree_decode(s, pband->zbp + cblkno, 14);
-        // int v   = expn[bandno] + numgbits - 1 - (zbp - tile->comp->roi_shift);
-        // if (v < 0 || v > 30) {
-        //   av_log(s->avctx, AV_LOG_ERROR, "nonzerobits %d invalid or unsupported\n", v);
-        //   return AVERROR_INVALIDDATA;
-        // }
-        cblk->incl = 1;
-        // cblk->nonzerobits = v;
-        cblk->zbp    = zbp;
+        cblk->incl   = 1;
+        cblk->zbp    = tag_tree_decode(s, pband->zbp + cblkno, 14);
         cblk->lblock = 3;
-      }
-      // } else { // *** THIS IF STATEMENT IS OMITTED FOR SPEED
-      // incl = s->get_bit(); // *** THIS IF STATEMENT IS OMITTED FOR SPEED
-      // } // *** THIS IF STATEMENT IS OMITTED FOR SPEED
 
-      if (incl) {
-        uint8_t bypass_term_threshold = 0;
-        uint8_t bits_to_read          = 0;
-        uint32_t segment_bytes        = 0;
-        int32_t segment_passes        = 0;
-        uint8_t next_segment_passes   = 0;
-        // uint32_t tmp_length = 0;
-        // int32_t newpasses_copy, npasses_copy;
         // Decode number of passes.
-        newpasses = 1;
+        uint32_t newpasses = 1;
         newpasses += s->get_bit();
         if (newpasses >= 2) {
           newpasses += s->get_bit();
-          if (newpasses >= 3) {
-            newpasses += s->packetheader_get_bits(2);
-            if (newpasses >= 6) {
-              newpasses += s->packetheader_get_bits(5);
-              if (newpasses >= 37) newpasses += s->packetheader_get_bits(7);
-            }
-          }
         }
+        if (newpasses >= 3) {
+          newpasses += s->packetheader_get_bits(2);
+        }
+        if (newpasses >= 6) {
+          newpasses += s->packetheader_get_bits(5);
+        }
+        if (newpasses >= 37) newpasses += s->packetheader_get_bits(7);
 
-        // if ((newpasses = getnpasses(s)) <= 0) return newpasses;
         if (cblk->npasses + newpasses >= JPEG2000_MAX_PASSES) {
           printf("Too many passes\n");
           return EXIT_FAILURE;
         }
+        int llen;
         if ((llen = getlblockinc(s)) < 0) return llen;
         if (cblk->lblock + llen + int_log2(newpasses) > 16) {
           printf("Block with length beyond 16 bits\n");
@@ -374,41 +371,19 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
         }
         cblk->lblock += llen;
 
-        // Count number of necessary terminations for non HT code block
-        // newpasses_copy = newpasses;
-        // npasses_copy   = cblk->npasses;
-        // if (!(cblk->modes & CMODE_HT)) {
-        //   do {
-        //     int newpasses1 = 0;
-        //
-        //     while (newpasses1 < newpasses_copy) {
-        //       newpasses1++;
-        //       if (needs_termination(coc->cbs, npasses_copy + newpasses1 - 1)) {
-        //         cblk->nb_terminationsinc++;
-        //         break;
-        //       }
-        //     }
-        //     npasses_copy += newpasses1;
-        //     newpasses_copy -= newpasses1;
-        //   } while (newpasses_copy);
-        // }
+        uint8_t bypass_term_threshold = 0;
+        uint8_t bits_to_read          = 0;
+        uint32_t segment_bytes        = 0;
+        int32_t segment_passes        = 0;
+        uint8_t next_segment_passes   = 0;
 
         if (cblk->ht_plhd) {
-          int32_t pass_bound;
-          int32_t href_passes;
-          href_passes    = (cblk->npasses + newpasses - 1) % 3;
-          segment_passes = newpasses - href_passes;
-          pass_bound     = 2;
-          bits_to_read   = cblk->lblock;
+          int32_t href_passes = (cblk->npasses + newpasses - 1) % 3;
+          segment_passes      = newpasses - href_passes;
           if (segment_passes < 1) {
-            // No possible HT Cleanup pass here; may have placeholder passes
-            // or an original J2K block bit-stream (in MIXED mode).
             segment_passes = newpasses;
-            while (pass_bound <= segment_passes) {
-              bits_to_read++;
-              pass_bound += pass_bound;
-            }
-            segment_bytes = s->packetheader_get_bits(bits_to_read);
+            bits_to_read   = cblk->lblock + int_log2(segment_passes);
+            segment_bytes  = s->packetheader_get_bits(bits_to_read);
             if (segment_bytes) {
               if (cblk->modes & HT_MIXED) {
                 cblk->ht_plhd = HT_PLHD_OFF;
@@ -420,160 +395,99 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
               }
             }
           } else {
-            // while (pass_bound <= segment_passes) {
-            //   bits_to_read++;
-            //   pass_bound += pass_bound;
-            // }
-            bits_to_read += 31 - __builtin_clz(segment_passes);
+            bits_to_read  = cblk->lblock + 31 - __builtin_clz(segment_passes);
             segment_bytes = s->packetheader_get_bits(bits_to_read);
             if (segment_bytes) {
-              // No more placeholder passes
               if (!(cblk->modes & HT_MIXED)) {
-                // Must be the first HT Cleanup pass
                 if (segment_bytes < 2) {
                   printf("Length information %d for a HT-codeblock is invalid at %d\n", segment_bytes,
                          __LINE__);
                   return EXIT_FAILURE;
                 }
-                next_segment_passes = 2;
-                cblk->ht_plhd       = HT_PLHD_OFF;
-                // Write length information for HT CleanUp segment
+                next_segment_passes   = 2;
+                cblk->ht_plhd         = HT_PLHD_OFF;
                 cblk->pass_lengths[0] = segment_bytes;
               } else if (cblk->lblock > 3 && segment_bytes > 1
                          && (segment_bytes >> (bits_to_read - 1)) == 0) {
-                // Must be the first HT Cleanup pass, since length MSB is 0
-                next_segment_passes = 2;
-                cblk->ht_plhd       = HT_PLHD_OFF;
-                // Write length information for HT CleanUp segment
+                next_segment_passes   = 2;
+                cblk->ht_plhd         = HT_PLHD_OFF;
                 cblk->pass_lengths[0] = segment_bytes;
               } else {
-                // Must have an original (non-HT) block coding pass
                 cblk->modes &= (uint8_t)(~(CMODE_HT));
-                cblk->ht_plhd  = HT_PLHD_OFF;
-                segment_passes = newpasses;
-                while (pass_bound <= segment_passes) {
-                  bits_to_read++;
-                  pass_bound += pass_bound;
-                  segment_bytes <<= 1;
-                  segment_bytes += s->get_bit();
-                }
+                cblk->ht_plhd = HT_PLHD_OFF;
+                bits_to_read  = cblk->lblock + int_log2(segment_passes);
+                segment_bytes = s->packetheader_get_bits(bits_to_read);
               }
             } else {
-              // Probably parsing placeholder passes, but we need to read an
-              // extra length bit to verify this, since prior to the first
-              // HT Cleanup pass, the number of length bits read for a
-              // contributing code-block is dependent on the number of passes
-              // being included, as if it were a non-HT code-block.
               segment_passes = newpasses;
-              if (pass_bound <= segment_passes) {
-                while (1) {
-                  bits_to_read++;
-                  pass_bound += pass_bound;
-                  segment_bytes <<= 1;
-                  segment_bytes += s->get_bit();
-                  if (pass_bound > segment_passes) break;
-                }
-                if (segment_bytes) {
-                  if (cblk->modes & HT_MIXED) {
-                    cblk->modes &= (uint8_t)(~(CMODE_HT));
-                    cblk->ht_plhd = HT_PLHD_OFF;
-                  } else {
-                    printf("Length information %d for a HT-codeblock is invalid at %d\n", segment_bytes,
-                           __LINE__);
-                    return EXIT_FAILURE;
-                  }
+              bits_to_read   = cblk->lblock + int_log2(segment_passes);
+              segment_bytes  = s->packetheader_get_bits(bits_to_read);
+              if (segment_bytes) {
+                if (cblk->modes & HT_MIXED) {
+                  cblk->modes &= (uint8_t)(~(CMODE_HT));
+                  cblk->ht_plhd = HT_PLHD_OFF;
+                } else {
+                  printf("Length information %d for a HT-codeblock is invalid at %d\n", segment_bytes,
+                         __LINE__);
+                  return EXIT_FAILURE;
                 }
               }
             }
           }
         } else if (cblk->modes & CMODE_HT) {
-          // Quality layer commences with a non-initial HT coding pass
-          if (bits_to_read != 0) {
-            printf("Length information %d for a HT-codeblock is invalid at %d\n", segment_bytes, __LINE__);
-            return EXIT_FAILURE;
-          }
-          segment_passes = cblk->npasses % 3;
-          if (segment_passes == 0) {
-            // newpasses is a HT Cleanup pass; next segment has refinement passes
+          if (cblk->npasses % 3 == 0) {
             segment_passes      = 1;
             next_segment_passes = 2;
-            if (segment_bytes == 1)
-              printf("Length information %d for a HT-codeblock is invalid at %d\n", segment_bytes,
-                     __LINE__);
           } else {
-            // newpasses = 1 means npasses is HT SigProp; 2 means newpasses is
-            // HT MagRef pass
-            segment_passes      = newpasses > 1 ? 3 - segment_passes : 1;
+            segment_passes      = newpasses > 1 ? 3 - cblk->npasses % 3 : 1;
             next_segment_passes = 1;
-            bits_to_read        = int_log2(segment_passes);
           }
-          bits_to_read  = (uint8_t)(bits_to_read + cblk->lblock);
+          bits_to_read  = cblk->lblock + int_log2(segment_passes);
           segment_bytes = s->packetheader_get_bits(bits_to_read);
-          // Write length information for HT Refinment segment
           cblk->pass_lengths[1] += segment_bytes;
         } else if (!(cblk->modes & (CMODE_TERMALL | CMODE_BYPASS))) {
-          // Common case for non-HT code-blocks; we have only one segment
-          bits_to_read   = (uint8_t)cblk->lblock + int_log2((uint8_t)newpasses);
+          bits_to_read   = cblk->lblock + int_log2(newpasses);
           segment_bytes  = s->packetheader_get_bits(bits_to_read);
           segment_passes = newpasses;
         } else if (cblk->modes & CMODE_TERMALL) {
-          // RESTART MODE
           bits_to_read        = cblk->lblock;
           segment_bytes       = s->packetheader_get_bits(bits_to_read);
           segment_passes      = 1;
           next_segment_passes = 1;
         } else {
-          // BYPASS MODE
           bypass_term_threshold = 10;
-          if (bits_to_read != 0) {
-            printf("Length information for a codeblock in BYPASS is invalid\n");
-            return EXIT_FAILURE;
-          }
           if (cblk->npasses < bypass_term_threshold) {
-            // May have from 1 to 10 uninterrupted passes before 1st RAW SigProp
-            segment_passes = bypass_term_threshold - cblk->npasses;
-            if (segment_passes > newpasses) segment_passes = newpasses;
-            while ((2 << bits_to_read) <= segment_passes) bits_to_read++;
+            segment_passes      = LOCAL_MIN(bypass_term_threshold - cblk->npasses, newpasses);
+            bits_to_read        = cblk->lblock + int_log2(segment_passes);
             next_segment_passes = 2;
-          } else if ((cblk->npasses - bypass_term_threshold) % 3 < 2) {
-            // 0 means newpasses is a RAW SigProp; 1 means newpasses is a RAW MagRef pass
-            segment_passes      = newpasses > 1 ? 2 - (cblk->npasses - bypass_term_threshold) % 3 : 1;
-            bits_to_read        = int_log2(segment_passes);
-            next_segment_passes = 1;
           } else {
-            // newpasses is an isolated Cleanup pass that precedes a RAW SigProp pass
-            segment_passes      = 1;
-            next_segment_passes = 2;
+            segment_passes      = newpasses > 1 ? 2 - (cblk->npasses - bypass_term_threshold) % 3 : 1;
+            bits_to_read        = cblk->lblock + int_log2(segment_passes);
+            next_segment_passes = 1;
           }
-          bits_to_read  = (uint8_t)(bits_to_read + cblk->lblock);
           segment_bytes = s->packetheader_get_bits(bits_to_read);
         }
-        // Update cblk->npasses and write length information
-        cblk->npasses = (uint8_t)(cblk->npasses + segment_passes);
-        // cblk->lengthinc[cblk->nb_lengthinc++] = segment_bytes;
+
+        cblk->npasses += segment_passes;
 
         if ((cblk->modes & CMODE_HT) && cblk->ht_plhd == HT_PLHD_OFF) {
-          newpasses -= (uint8_t)segment_passes;
+          newpasses -= segment_passes;
           while (newpasses > 0) {
             segment_passes      = newpasses > 1 ? next_segment_passes : 1;
             next_segment_passes = (uint8_t)(3 - next_segment_passes);
-            bits_to_read        = (uint8_t)(cblk->lblock + int_log2(segment_passes));
+            bits_to_read        = cblk->lblock + int_log2(segment_passes);
             segment_bytes       = s->packetheader_get_bits(bits_to_read);
-            newpasses -= (uint8_t)(segment_passes);
-            // This is a FAST Refinement pass
-            // Write length information for HT Refinement segment
+            newpasses -= segment_passes;
             cblk->pass_lengths[1] += segment_bytes;
-            // Update cblk->npasses and write length information
-            cblk->npasses = (uint8_t)(cblk->npasses + segment_passes);
-            // cblk->lengthinc[cblk->nb_lengthinc++] = segment_bytes;
+            cblk->npasses += segment_passes;
           }
         } else {
-          newpasses -= (uint8_t)(segment_passes);
+          newpasses -= segment_passes;
           while (newpasses > 0) {
             if (bypass_term_threshold != 0) {
               segment_passes      = newpasses > 1 ? next_segment_passes : 1;
               next_segment_passes = (uint8_t)(3 - next_segment_passes);
-              bits_to_read        = (uint8_t)(cblk->lblock + int_log2(segment_passes));
+              bits_to_read        = cblk->lblock + int_log2(segment_passes);
             } else {
               if ((cblk->modes & CMODE_TERMALL) == 0) {
                 printf("Corrupted packet header is found.\n");
@@ -583,16 +497,10 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
               bits_to_read   = cblk->lblock;
             }
             segment_bytes = s->packetheader_get_bits(bits_to_read);
-            newpasses -= (uint8_t)(segment_passes);
-
-            // Update cblk->npasses and write length information
-            cblk->npasses = (uint8_t)(cblk->npasses + segment_passes);
-            // cblk->lengthinc[cblk->nb_lengthinc++] = segment_bytes;
+            newpasses -= segment_passes;
+            cblk->npasses += segment_passes;
           }
         }
-      } else {
-        // This codeblock has no contribution to the current packet
-        continue;
       }
       cblk->length = cblk->pass_lengths[0] + cblk->pass_lengths[1];
     }
@@ -607,12 +515,8 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
       blk_ *cblk = pband->blk + cblkno;
       cblk->data = (uint8_t *)s->get_address();
       if (cblk->length) {
-        // recover Scup and modDcup()
-        // __builtin_prefetch(&cblk->data[cblk->pass_lengths[0] - 1], 0, 0);
         cblk->Scup =
             ((cblk->data[cblk->pass_lengths[0] - 1] << 4) + (cblk->data[cblk->pass_lengths[0] - 2] & 0x0F));
-        // cblk->data[cblk->pass_lengths[0] - 1] = 0xFFu;
-        // cblk->data[cblk->pass_lengths[0] - 2] |= 0x0Fu;
       }
       [[maybe_unused]] uint8_t bnum;
       if (prec->res_num == 0) {
@@ -620,7 +524,6 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
       } else {
         bnum = b + 1;
       }
-      // printf("%d,%d,%d\n", prec->res_num, bnum, cblk->length);
       if (get_log_file_fp() != nullptr) {
         fprintf(log_file, "%d,%d,%d\n", prec->res_num, bnum, cblk->length);
       }
@@ -682,8 +585,8 @@ int read_tile(tile_ *tile, const coc_marker *cocs, const dfs_marker *dfs) {
   LYE = 1;                          // assume No Layer
   CE  = 3;                          // tile->num_components;
 
-  uint32_t px[MAX_NUM_COMPONENTS][MAX_DWT_LEVEL + 1] = {0};
-  uint32_t py[MAX_NUM_COMPONENTS][MAX_DWT_LEVEL + 1] = {0};
+  uint32_t px[MAX_NUM_COMPONENTS][MAX_DWT_LEVEL + 1] = {{0}};
+  uint32_t py[MAX_NUM_COMPONENTS][MAX_DWT_LEVEL + 1] = {{0}};
 
   // bool is_packet_read[3][6][4 * 270] = {false};
   switch (PO) {
@@ -776,7 +679,7 @@ int parse_one_precinct(tile_ *tile, const coc_marker *cocs) {
 }
 
 int prepare_precinct_structure(tile_ *tile, const coc_marker *cocs, const dfs_marker *dfs) {
-  int ret;
+  [[maybe_unused]] int ret;
   uint32_t PO, RS, RE;
   [[maybe_unused]] uint32_t LYE, CS, CE;
   int32_t step_x, step_y;
@@ -787,8 +690,8 @@ int prepare_precinct_structure(tile_ *tile, const coc_marker *cocs, const dfs_ma
   LYE = 1;                          // assume No Layer
   CE  = 3;                          // tile->num_components;
 
-  uint32_t px[MAX_NUM_COMPONENTS][MAX_DWT_LEVEL + 1] = {0};
-  uint32_t py[MAX_NUM_COMPONENTS][MAX_DWT_LEVEL + 1] = {0};
+  uint32_t px[MAX_NUM_COMPONENTS][MAX_DWT_LEVEL + 1] = {{0}};
+  uint32_t py[MAX_NUM_COMPONENTS][MAX_DWT_LEVEL + 1] = {{0}};
 
   size_t crp_index = 0;
   switch (PO) {

@@ -107,7 +107,7 @@ inline void codestream::move_forward(uint32_t n) {
 
 inline const uint8_t *codestream::get_address() const { return src; }
 
-inline uint32_t codestream::get_pos() const { return src - origin; }
+inline uint32_t codestream::get_pos() const { return static_cast<uint32_t>(src - origin); }
 
 inline void codestream::reset(uint32_t p) {
   last = 0;
@@ -206,11 +206,11 @@ struct coc_marker {
 struct dfs_marker {
   uint32_t idx;
   uint32_t Idfs;
-  uint8_t type[MAX_DWT_LEVEL + 1];      // = 1: BOTH, 2: HORZ, 3: VERT
-  uint8_t h_orient[MAX_DWT_LEVEL + 1];  // = 1 means X, 0 means L or H, (XL or XH)
-  uint8_t v_orient[MAX_DWT_LEVEL + 1];  // = 1 means X, 0 means L or H, (LX or HX)
-  uint8_t hor_depth[MAX_DWT_LEVEL + 1];
-  uint8_t ver_depth[MAX_DWT_LEVEL + 1];
+  uint32_t type[MAX_DWT_LEVEL + 1];      // = 1: BOTH, 2: HORZ, 3: VERT
+  uint32_t h_orient[MAX_DWT_LEVEL + 1];  // = 1 means X, 0 means L or H, (XL or XH)
+  uint32_t v_orient[MAX_DWT_LEVEL + 1];  // = 1 means X, 0 means L or H, (LX or HX)
+  uint32_t hor_depth[MAX_DWT_LEVEL + 1];
+  uint32_t ver_depth[MAX_DWT_LEVEL + 1];
 };
 
 struct geometry {

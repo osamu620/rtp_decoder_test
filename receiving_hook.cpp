@@ -54,7 +54,7 @@ int main(int argc, char *argv[]) {
   // How long this example will run
   const auto RECEIVE_TIME_S = std::chrono::seconds(TIME_S);
 
-  size_t RECEIVER_WAIT_TIME_MS = 45;
+  [[maybe_unused]] size_t RECEIVER_WAIT_TIME_MS = 45;
   if (argc > 4) {
     RECEIVER_WAIT_TIME_MS = static_cast<size_t>(std::stoi(argv[4]));
   }

@@ -11,6 +11,8 @@
 #include <packet_parser/j2k_tile.hpp>
 #include <packet_parser/utils.hpp>
 
+#include <arm_neon.h>
+
 #define ACTION(func, ...)                                                         \
   auto st = std::chrono::high_resolution_clock::now();                            \
   if (tile_hndr.func(__VA_ARGS__)) {                                              \
@@ -26,15 +28,15 @@ class frame_handler {
  private:
   uint8_t *const incoming_data;  // buffer preserves incoming RTP frame data
   size_t incoming_data_len;      // length of `incoming_data`
-  tile_hanlder tile_hndr;
-  size_t total_frames;  // total number of frames processed
-  size_t trunc_frames;  // total number of truncated frames
-  size_t lost_frames;   // total number of lost RTP frames (not J2K frames)
-  uint32_t start_SOD;   // position of where SOD marker locates
-  int32_t is_parsing_failure;
-  codestream cs;                                                           //
+  size_t total_frames;           // total number of frames processed
+  size_t trunc_frames;           // total number of truncated frames
+  size_t lost_frames;            // total number of lost RTP frames (not J2K frames)
+  uint32_t start_SOD;            // position of where SOD marker locates
+  int32_t is_parsing_failure;    //
   std::chrono::time_point<std::chrono::high_resolution_clock> start_time;  // for FPS calculation
   double cumlative_time;
+  tile_hanlder tile_hndr;
+  codestream cs;
 
  public:
   frame_handler(uint8_t *p)
@@ -45,8 +47,8 @@ class frame_handler {
         lost_frames(0),
         start_SOD(0),
         is_parsing_failure(0),
-        cs(incoming_data),
-        cumlative_time(0.0) {
+        cumlative_time(0.0),
+        cs(incoming_data) {
     start_time = std::chrono::high_resolution_clock::now();
   }
 
@@ -100,9 +102,7 @@ class frame_handler {
     const uint32_t POS = POS_PID >> 20;
     const uint32_t PID = POS_PID & 0x000FFFFF;
 
-    // std::memcpy(this->incoming_data + incoming_data_len, data, size);
-    std::memcpy(reinterpret_cast<uint32_t *>(this->incoming_data) + incoming_data_len / 4, (uint32_t *)data,
-                size);
+    std::memcpy(this->incoming_data + incoming_data_len, data, size);
     if (MH >= 1) {  // MH >=1 means this RTP packet is Main packet.
       log_init(total_frames);
       incoming_data_len = 0;

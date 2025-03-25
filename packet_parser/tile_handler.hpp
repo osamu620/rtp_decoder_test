@@ -74,7 +74,7 @@ class tile_hanlder {
             assert(dfs.idx == coc->NL - 128);
             coc->NL = dfs.Idfs;
           }
-          parepare_tcomp_structure(tcp, &siz, coc, &dfs);
+          parepare_tcomp_structure(tcp, coc, &dfs);
         }
         prepare_precinct_structure(tile, cocs, &dfs);
       }
