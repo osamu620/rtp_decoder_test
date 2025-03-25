@@ -8,10 +8,11 @@
 #include <chrono>
 #include <packet_parser/tile_handler.hpp>
 #include <packet_parser/j2k_header.hpp>
-#include <packet_parser/j2k_tile.hpp>
 #include <packet_parser/utils.hpp>
 
-#include <arm_neon.h>
+#if defined(__aarch64__)
+  #include <arm_neon.h>
+#endif
 
 #define ACTION(func, ...)                                                         \
   auto st = std::chrono::high_resolution_clock::now();                            \

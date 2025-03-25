@@ -4,12 +4,23 @@ project(rtp_decoder LANGUAGES CXX DESCRIPTION "RTP decoder and JPEG 2000 codestr
 #set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
+## MACRO DEFINITION
 set(CMAKE_CXX_FLAGS
-    "${CMAKE_CXX_FLAGS} -Wstrict-aliasing -Wall -Wextra -Wconversion -Wunused-parameter -Wformat=0 -fexceptions -D__RTP_NO_CRYPTO__ -D__RTP_SILENT__"
+    "${CMAKE_CXX_FLAGS} -D__RTP_NO_CRYPTO__ -D__RTP_SILENT__"
+)
+## WARNING
+set(CMAKE_CXX_FLAGS
+    "${CMAKE_CXX_FLAGS} -Wstrict-aliasing -Wall -Wextra -Wconversion -Wunused-parameter -Wformat=0 -fexceptions"
 )
 set(CMAKE_CXX_FLAGS
-    "${CMAKE_CXX_FLAGS} -Wno-sign-conversion -Wno-implicit-int-conversion -Wno-sign-compare -Wno-shorten-64-to-32"
+    "${CMAKE_CXX_FLAGS} -Wno-sign-conversion -Wno-sign-compare"
 )
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fcolor-diagnostics -Wno-shorten-64-to-32 -Wno-implicit-int-conversion")
+endif ()
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdiagnostics-color=always")
+endif()
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DSTACK_ALLOC")
 if(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^[xX]86_64$|^[aA][mM][dD]64$") # x86_64
