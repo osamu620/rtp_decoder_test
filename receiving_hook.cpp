@@ -98,50 +98,51 @@ int main(int argc, char *argv[]) {
 }
 
 void rtp_receive_hook(void *arg, uvgrtp::frame::rtp_frame *frame) {
-  constexpr ptrdiff_t OFFSET = 0;
-  // std::cout << "Received RTP frame" << std::endl;
-
-  /* Now we own the frame. Here you could give the frame to the application
-   * if f.ex "arg" was some application-specific pointer
-   *
-   * arg->copy_frame(frame) or whatever
-   *
-   * When we're done with the frame, it must be deallocated manually */
-  uint8_t *pp = frame->payload + OFFSET;
-  uint32_t RTP_header_val;
+  // constexpr ptrdiff_t OFFSET = 0;
+  // // std::cout << "Received RTP frame" << std::endl;
   //
-  int MH = pp[0] >> 6;
-  // int TP      = (pp[0] >> 3) & 0x7;
-  // int ORDH    = pp[0] & 0x7;
-  // int RES     = ORDH;
-  // int P       = pp[1] >> 7;
-  // int XTRAC   = (pp[1] >> 4) & 0x7;
-  // int QUAL    = XTRAC;
-  // tmp         = __builtin_bswap32(*(uint32_t *)(pp));
-  // int PTSTAMP = (tmp >> 8) & 0xFFF;
-  // int ESEQ    = pp[3];
-  // int R       = pp[4] >> 7;
-  // int S       = (pp[4] >> 6) & 1;
-  // int C       = (pp[4] >> 5) & 1;
-  // int RSVD    = (pp[4] >> 1) & 0x7;
-  // int PRIMS   = pp[5];
-  // int TRANS   = pp[6];
-  // int MAT     = pp[7];
-
-  RTP_header_val = __builtin_bswap32(*(uint32_t *)(pp + 4));
-
-  if (MH == 0) {
-    // // BODY
-    // printf("RES = %d, QUAL = %d, ESEQ = %d, POS = %d, PID = %d, s = %d, c = %d, seq = %d\n", RES, QUAL,
-    //        ESEQ, POS, PID, PID / 3, PID % 3, ESEQ * 65536 + frame->header.seq);
-  } else {
-    // HEADER
-    // printf("timestamp = %d\n", frame->header.timestamp);
-  }
+  // /* Now we own the frame. Here you could give the frame to the application
+  //  * if f.ex "arg" was some application-specific pointer
+  //  *
+  //  * arg->copy_frame(frame) or whatever
+  //  *
+  //  * When we're done with the frame, it must be deallocated manually */
+  // uint8_t *pp = frame->payload + OFFSET;
+  // uint32_t RTP_header_val;
+  // //
+  // int MH = pp[0] >> 6;
+  // // int TP      = (pp[0] >> 3) & 0x7;
+  // // int ORDH    = pp[0] & 0x7;
+  // // int RES     = ORDH;
+  // // int P       = pp[1] >> 7;
+  // // int XTRAC   = (pp[1] >> 4) & 0x7;
+  // // int QUAL    = XTRAC;
+  // // tmp         = __builtin_bswap32(*(uint32_t *)(pp));
+  // // int PTSTAMP = (tmp >> 8) & 0xFFF;
+  // // int ESEQ    = pp[3];
+  // // int R       = pp[4] >> 7;
+  // // int S       = (pp[4] >> 6) & 1;
+  // // int C       = (pp[4] >> 5) & 1;
+  // // int RSVD    = (pp[4] >> 1) & 0x7;
+  // // int PRIMS   = pp[5];
+  // // int TRANS   = pp[6];
+  // // int MAT     = pp[7];
+  //
+  // RTP_header_val = __builtin_bswap32(*(uint32_t *)(pp + 4));
+  //
+  // if (MH == 0) {
+  //   // // BODY
+  //   // printf("RES = %d, QUAL = %d, ESEQ = %d, POS = %d, PID = %d, s = %d, c = %d, seq = %d\n", RES,
+  //   QUAL,
+  //   //        ESEQ, POS, PID, PID / 3, PID % 3, ESEQ * 65536 + frame->header.seq);
+  // } else {
+  //   // HEADER
+  //   // printf("timestamp = %d\n", frame->header.timestamp);
+  // }
 
   const auto p           = static_cast<struct params_t *>(arg);
   j2k::frame_handler *fh = p->frame_handler;
-  fh->pull_data(pp + 8, frame->payload_len - 8, MH, frame->header.marker, RTP_header_val);
+  fh->pull_data(frame->payload, frame->payload_len - 8, frame->header.marker);
 
   size_t last_processed_frames = fh->get_total_frames();
   if (p->last_timetamp == 0) {

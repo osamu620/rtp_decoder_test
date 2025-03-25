@@ -101,12 +101,15 @@ class frame_handler {
   //     cs.tmp            = 0;
   //   }
 
-  void pull_data(uint8_t *__restrict__ data, size_t size, int MH, int marker, uint32_t POS_PID) {
-    const uint32_t POS = POS_PID >> 20;
-    const uint32_t PID = POS_PID & 0x000FFFFF;
-
+  void pull_data(uint8_t *__restrict__ payload, size_t size, int marker) {
+    const uint32_t MH                 = payload[0] >> 6;
+    const uint32_t POS_PID            = __builtin_bswap32(*(uint32_t *)(payload + 4));
+    const uint32_t POS                = POS_PID >> 20;
+    const uint32_t PID                = POS_PID & 0x000FFFFF;
+    uint8_t *__restrict__ j2k_payload = payload + 8;
     // std::memcpy(this->incoming_data + incoming_data_len, data, size);
-    std::memcpy(reinterpret_cast<uint32_t *>(this->incoming_data) + (incoming_data_len >> 2), data, size);
+    std::memcpy(reinterpret_cast<uint32_t *>(this->incoming_data) + (incoming_data_len >> 2), j2k_payload,
+                size);
     if (MH >= 1) {  // MH >=1 means this RTP packet is Main packet.
       log_init(total_frames);
       incoming_data_len = 0;
