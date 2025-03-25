@@ -123,8 +123,8 @@ class frame_handler {
           return;  // something wrong
         }
       } else {
-        // skip main header parsing (re-use)
-        tile_hndr.restart(start_SOD);
+        // // skip main header parsing (re-use)
+        // tile_hndr.restart(start_SOD);
         is_passed_header = 1;
       }
     }
@@ -146,6 +146,8 @@ class frame_handler {
       is_parsing_failure = 0;
       is_passed_header   = 0;
 
+      // skip main header parsing (re-use)
+      tile_hndr.restart(start_SOD);
       // printf("%d bytes allocated\n", get_bytes_allocated());
     }
   }
