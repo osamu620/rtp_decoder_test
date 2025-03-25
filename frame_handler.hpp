@@ -102,7 +102,8 @@ class frame_handler {
     const uint32_t POS = POS_PID >> 20;
     const uint32_t PID = POS_PID & 0x000FFFFF;
 
-    std::memcpy(this->incoming_data + incoming_data_len, data, size);
+    // std::memcpy(this->incoming_data + incoming_data_len, data, size);
+    std::memcpy(reinterpret_cast<uint32_t *>(this->incoming_data) + (incoming_data_len >> 2), data, size);
     if (MH >= 1) {  // MH >=1 means this RTP packet is Main packet.
       log_init(total_frames);
       incoming_data_len = 0;
