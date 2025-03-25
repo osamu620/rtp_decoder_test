@@ -41,6 +41,7 @@ add_executable(rtp_decoder
 )
 
 list(APPEND UVGRTP_CXX_FLAGS "-DNDEBUG")
+target_compile_definitions(${PROJECT_NAME} PRIVATE NDEBUG)
 
 include(CheckCXXSymbolExists)
     check_cxx_symbol_exists(getrandom sys/random.h HAVE_GETRANDOM)
