@@ -4,6 +4,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 #include "j2k_packet.hpp"
 
@@ -126,7 +127,7 @@ static tagtree_node *tag_tree_init(uint32_t w, uint32_t h) {
 void tag_tree_zero(tagtree_node *t, uint32_t w, uint32_t h, uint32_t val) {
   [[maybe_unused]] uint32_t i;
   uint32_t siz = tag_tree_size(w, h);
-  memset(t, 0, sizeof(tagtree_node) * siz);
+  std::memset(t, 0, sizeof(tagtree_node) * siz);
   // for (i = 0; i < siz; i++) {
   //   t[i].val      = val;
   //   t[i].temp_val = 0;
