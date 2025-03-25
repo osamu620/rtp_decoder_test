@@ -33,6 +33,7 @@ class frame_handler {
   size_t lost_frames;            // total number of lost RTP frames (not J2K frames)
   uint32_t start_SOD;            // position of where SOD marker locates
   int32_t is_parsing_failure;    //
+  int32_t is_passed_header;
   std::chrono::time_point<std::chrono::high_resolution_clock> start_time;  // for FPS calculation
   double cumlative_time;
   tile_hanlder tile_hndr;
@@ -47,6 +48,7 @@ class frame_handler {
         lost_frames(0),
         start_SOD(0),
         is_parsing_failure(0),
+        is_passed_header(0),
         cumlative_time(0.0),
         cs(incoming_data) {
     start_time = std::chrono::high_resolution_clock::now();
@@ -112,6 +114,7 @@ class frame_handler {
           start_SOD = parse_main_header(&cs, tile_hndr.get_siz(), tile_hndr.get_cod(), tile_hndr.get_cocs(),
                                         tile_hndr.get_qcd(), tile_hndr.get_dfs());
           tile_hndr.create(&cs);
+          is_passed_header = 1;
         } else {
           start_SOD += size;
         }
@@ -121,16 +124,17 @@ class frame_handler {
       } else {
         // skip main header parsing (re-use)
         tile_hndr.restart(start_SOD);
+        is_passed_header = 1;
       }
     }
 
     incoming_data_len += size;
-    if (POS && MH == 0 && !is_parsing_failure && tile_hndr.is_ready()) {
+    if (POS && MH == 0 && !is_parsing_failure && is_passed_header) {
       ACTION(parse, PID);
     }
 
     if (marker) {  // when EOC comes
-      if (!is_parsing_failure && tile_hndr.is_ready()) {
+      if (!is_parsing_failure && is_passed_header) {
         ACTION(flush);
       }
       trunc_frames += is_parsing_failure;
@@ -139,6 +143,7 @@ class frame_handler {
       save_j2c(total_frames, this->incoming_data, incoming_data_len);
       log_close();
       is_parsing_failure = 0;
+      is_passed_header   = 0;
 
       // printf("%d bytes allocated\n", get_bytes_allocated());
     }

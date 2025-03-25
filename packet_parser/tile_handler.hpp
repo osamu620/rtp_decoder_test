@@ -132,22 +132,23 @@ class tile_hanlder {
       tile_ *tile   = &tiles[t];
       tile->crp_idx = 0;
       tile->buf->reset(start_SOD);
-      for (uint32_t c = 0; c < tile->num_components; ++c) {
-        tcomp_ *tcp = &(tile->tcomp[c]);
-        for (uint32_t r = 0; r < MAX_DWT_LEVEL + 1; ++r) {
-          res_ *res = &(tcp->res[r]);
-          for (uint32_t p = 0; p < res->npw * res->nph; ++p) {
-            prec_ *prec = &res->prec[p];
-            for (uint32_t bp = 0; bp < prec->num_bands; ++bp) {
-              pband_ *pband = &prec->pband[bp];
+      for (uint32_t c = tile->num_components; c > 0; --c) {
+        tcomp_ *tcp = &(tile->tcomp[c - 1]);
+        for (uint32_t r = MAX_DWT_LEVEL + 1; r > 0; --r) {
+          const res_ *res              = &(tcp->res[r - 1]);
+          const uint32_t num_precincts = res->npw * res->nph;
+          for (uint32_t p = num_precincts; p > 0; --p) {
+            const prec_ *prec = &res->prec[p - 1];
+            for (uint32_t bp = prec->num_bands; bp > 0; --bp) {
+              pband_ *pband = &prec->pband[bp - 1];
               tag_tree_zero(pband->incl, prec->ncbw, prec->ncbh, 0);
               tag_tree_zero(pband->zbp, prec->ncbw, prec->ncbh, 0);
-              for (uint32_t n = 0; n < prec->ncbw * prec->ncbh; ++n) {
-                blk_ *blk            = &pband->blk[n];
-                blk->length          = 0;
-                blk->incl            = 0;
-                blk->zbp             = 0;
-                blk->lblock          = 3;
+              const uint32_t num_cblks = prec->ncbw * prec->ncbh;
+              for (uint32_t n = num_cblks; n > 0; --n) {
+                blk_ *blk   = &pband->blk[n - 1];
+                blk->length = 0;
+                // blk->incl            = 0;
+                // blk->zbp             = 0;
                 blk->npasses         = 0;
                 blk->pass_lengths[0] = blk->pass_lengths[1] = 0;
               }

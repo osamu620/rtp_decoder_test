@@ -43,7 +43,7 @@ int main(int argc, char *argv[]) {
     print_help(argv[0]);
     return EXIT_FAILURE;
   }
-  std::cout << "Starting uvgRTP RTP receive hook example" << std::endl;
+  std::cout << "Starting HTJ2K RTP/J2K packet decoder" << std::endl;
 
   const char *LOCAL_ADDRESS = argv[1];
   const uint16_t LOCAL_PORT = static_cast<uint16_t>(std::stoi(argv[2]));
