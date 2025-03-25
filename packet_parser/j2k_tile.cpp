@@ -17,14 +17,16 @@ void restart_tiles(tile_ *tiles, const siz_marker *siz) {
     for (uint32_t c = 0; c < tile->num_components; ++c) {
       tcomp_ *tcp = &(tile->tcomp[c]);
       for (uint32_t r = 0; r < MAX_DWT_LEVEL + 1; ++r) {
-        res_ *res = &(tcp->res[r]);
-        for (uint32_t p = 0; p < res->npw * res->nph; ++p) {
-          prec_ *prec = &res->prec[p];
-          for (uint32_t bp = 0; bp < prec->num_bands; ++bp) {
+        res_ *res                   = &(tcp->res[r]);
+        const int32_t num_precincts = (int32_t)(res->npw * res->nph);
+        for (int32_t p = num_precincts - 1; p >= 0; --p) {
+          prec_ *prec          = &res->prec[p];
+          const auto num_cblks = (int32_t)(prec->ncbw * prec->ncbh);
+          for (int32_t bp = prec->num_bands - 1; bp >= 0; --bp) {
             pband_ *pband = &prec->pband[bp];
             tag_tree_zero(pband->incl, prec->ncbw, prec->ncbh, 0);
             tag_tree_zero(pband->zbp, prec->ncbw, prec->ncbh, 0);
-            for (uint32_t n = 0; n < prec->ncbw * prec->ncbh; ++n) {
+            for (int32_t n = num_cblks - 1; n >= 0; --n) {
               blk_ *blk            = &pband->blk[n];
               blk->length          = 0;
               blk->incl            = 0;

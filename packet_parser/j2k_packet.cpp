@@ -128,11 +128,11 @@ void tag_tree_zero(tagtree_node *t, uint32_t w, uint32_t h, uint32_t val) {
   [[maybe_unused]] uint32_t i;
   uint32_t siz = tag_tree_size(w, h);
   std::memset(t, 0, sizeof(tagtree_node) * siz);
-  for (i = 0; i < siz; i++) {
-    t[i].val      = val;
-    t[i].temp_val = 0;
-    t[i].vis      = 0;
-  }
+  // for (i = 0; i < siz; i++) {
+  //   t[i].val      = val;
+  //   t[i].temp_val = 0;
+  //   t[i].vis      = 0;
+  // }
 }
 
 void parepare_tcomp_structure(tcomp_ *tcp, coc_marker *coc, dfs_marker *dfs) {
