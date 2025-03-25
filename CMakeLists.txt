@@ -5,7 +5,7 @@ project(rtp_decoder LANGUAGES CXX DESCRIPTION "RTP decoder and JPEG 2000 codestr
 set(CMAKE_CXX_STANDARD 17)
 
 set(CMAKE_CXX_FLAGS
-    "${CMAKE_CXX_FLAGS} -Wstrict-aliasing -Wall -Wextra -Wconversion -Wunused-parameter -Wformat=0 -fexceptions -D__RTP_NO_CRYPTO__"
+    "${CMAKE_CXX_FLAGS} -Wstrict-aliasing -Wall -Wextra -Wconversion -Wunused-parameter -Wformat=0 -fexceptions -D__RTP_NO_CRYPTO__ -D__RTP_SILENT__"
 )
 set(CMAKE_CXX_FLAGS
     "${CMAKE_CXX_FLAGS} -Wno-sign-conversion -Wno-implicit-int-conversion -Wno-sign-compare -Wno-shorten-64-to-32"
