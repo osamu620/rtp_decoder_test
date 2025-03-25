@@ -19,6 +19,7 @@
   if (tile_hndr.func(__VA_ARGS__)) {                                              \
     log_put("**************** FAILURE");                                          \
     is_parsing_failure = 1;                                                       \
+    is_passed_header   = 0;                                                       \
   }                                                                               \
   auto dr    = std::chrono::high_resolution_clock::now() - st;                    \
   auto count = std::chrono::duration_cast<std::chrono::microseconds>(dr).count(); \
@@ -27,13 +28,14 @@
 namespace j2k {
 class frame_handler {
  private:
-  uint8_t *const incoming_data;  // buffer preserves incoming RTP frame data
-  size_t incoming_data_len;      // length of `incoming_data`
-  size_t total_frames;           // total number of frames processed
-  size_t trunc_frames;           // total number of truncated frames
-  size_t lost_frames;            // total number of lost RTP frames (not J2K frames)
-  uint32_t start_SOD;            // position of where SOD marker locates
-  int32_t is_parsing_failure;    //
+  alignas(16) uint8_t incoming_data[4 * 1024 * 1024];
+  // uint8_t *const incoming_data;  // buffer preserves incoming RTP frame data
+  size_t incoming_data_len;    // length of `incoming_data`
+  size_t total_frames;         // total number of frames processed
+  size_t trunc_frames;         // total number of truncated frames
+  size_t lost_frames;          // total number of lost RTP frames (not J2K frames)
+  uint32_t start_SOD;          // position of where SOD marker locates
+  int32_t is_parsing_failure;  //
   int32_t is_passed_header;
   std::chrono::time_point<std::chrono::high_resolution_clock> start_time;  // for FPS calculation
   double cumlative_time;
@@ -41,9 +43,8 @@ class frame_handler {
   codestream cs;
 
  public:
-  frame_handler(uint8_t *p)
-      : incoming_data(p),
-        incoming_data_len(0),
+  frame_handler()
+      : incoming_data_len(0),
         total_frames(0),
         trunc_frames(0),
         lost_frames(0),

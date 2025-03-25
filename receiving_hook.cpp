@@ -23,8 +23,6 @@
 
 #include <frame_handler.hpp>
 
-alignas(8) static uint8_t incoming_data[1024 * 4096];
-
 struct params_t {
   j2k::frame_handler *frame_handler;
   size_t total_frames;
@@ -59,7 +57,7 @@ int main(int argc, char *argv[]) {
     RECEIVER_WAIT_TIME_MS = static_cast<size_t>(std::stoi(argv[4]));
   }
 
-  j2k::frame_handler frame_handler(incoming_data);
+  j2k::frame_handler frame_handler;
   size_t total_frames = 0;
   params_t params{};
   params.frame_handler = &frame_handler;
