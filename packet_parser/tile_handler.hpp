@@ -107,7 +107,8 @@ class tile_hanlder {
   int flush() {
     int ret     = EXIT_SUCCESS;
     tile_ *tile = tiles.data();
-    for (; tile->crp_idx < 5670; tile->crp_idx++) {
+    const int n = static_cast<int>(tile->crp.size());
+    for (; tile->crp_idx < n; tile->crp_idx++) {
       ret = parse_one_precinct(tile, this->cocs);
       if (ret) {
         break;

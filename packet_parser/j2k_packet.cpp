@@ -381,10 +381,17 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
         if (cblk->ht_plhd) {
           int32_t href_passes = (cblk->npasses + newpasses - 1) % 3;
           segment_passes      = newpasses - href_passes;
+          int32_t pass_bound  = 2;
+          bits_to_read        = cblk->lblock;
           if (segment_passes < 1) {
+            // No possible HT Cleanup pass here; may have placeholder passes
+            // or an original J2K block bit-stream (in MIXED mode).
             segment_passes = newpasses;
-            bits_to_read   = cblk->lblock + int_log2(segment_passes);
-            segment_bytes  = s->packetheader_get_bits(bits_to_read);
+            while (pass_bound <= segment_passes) {
+              bits_to_read++;
+              pass_bound <<= 1;
+            }
+            segment_bytes = s->packetheader_get_bits(bits_to_read);
             if (segment_bytes) {
               if (cblk->modes & HT_MIXED) {
                 cblk->ht_plhd = HT_PLHD_OFF;
@@ -396,7 +403,10 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
               }
             }
           } else {
-            bits_to_read  = cblk->lblock + 31 - __builtin_clz(segment_passes);
+            while (pass_bound <= segment_passes) {
+              bits_to_read++;
+              pass_bound <<= 1;
+            }
             segment_bytes = s->packetheader_get_bits(bits_to_read);
             if (segment_bytes) {
               if (!(cblk->modes & HT_MIXED)) {
@@ -414,23 +424,42 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
                 cblk->ht_plhd         = HT_PLHD_OFF;
                 cblk->pass_lengths[0] = segment_bytes;
               } else {
+                // Fall back to original (non-HT) block coding: extend the length
+                // incrementally instead of re-reading from scratch — the previously
+                // consumed bits are the high bits of the final length.
                 cblk->modes &= (uint8_t)(~(CMODE_HT));
-                cblk->ht_plhd = HT_PLHD_OFF;
-                bits_to_read  = cblk->lblock + int_log2(segment_passes);
-                segment_bytes = s->packetheader_get_bits(bits_to_read);
+                cblk->ht_plhd  = HT_PLHD_OFF;
+                segment_passes = newpasses;
+                while (pass_bound <= segment_passes) {
+                  bits_to_read++;
+                  pass_bound <<= 1;
+                  segment_bytes <<= 1;
+                  segment_bytes |= s->get_bit();
+                }
+                cblk->pass_lengths[0] = segment_bytes;
               }
             } else {
+              // Probably a placeholder block, but pre-Cleanup the number of length
+              // bits depends on the pass count, so extend incrementally to verify.
               segment_passes = newpasses;
-              bits_to_read   = cblk->lblock + int_log2(segment_passes);
-              segment_bytes  = s->packetheader_get_bits(bits_to_read);
-              if (segment_bytes) {
-                if (cblk->modes & HT_MIXED) {
-                  cblk->modes &= (uint8_t)(~(CMODE_HT));
-                  cblk->ht_plhd = HT_PLHD_OFF;
-                } else {
-                  printf("Length information %d for a HT-codeblock is invalid at %d\n", segment_bytes,
-                         __LINE__);
-                  return EXIT_FAILURE;
+              if (pass_bound <= segment_passes) {
+                while (true) {
+                  bits_to_read++;
+                  pass_bound <<= 1;
+                  segment_bytes <<= 1;
+                  segment_bytes |= s->get_bit();
+                  if (pass_bound > segment_passes) break;
+                }
+                if (segment_bytes) {
+                  if (cblk->modes & HT_MIXED) {
+                    cblk->modes &= (uint8_t)(~(CMODE_HT));
+                    cblk->ht_plhd         = HT_PLHD_OFF;
+                    cblk->pass_lengths[0] = segment_bytes;
+                  } else {
+                    printf("Length information %d for a HT-codeblock is invalid at %d\n",
+                           segment_bytes, __LINE__);
+                    return EXIT_FAILURE;
+                  }
                 }
               }
             }
@@ -745,6 +774,7 @@ int prepare_precinct_structure(tile_ *tile, const coc_marker *cocs, const dfs_ma
           }
         }
       }
+      tile->crp.resize(crp_index);
       tile->is_crp_complete = true;
 
       break;

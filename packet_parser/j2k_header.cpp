@@ -335,6 +335,28 @@ void print_SIZ(siz_marker *siz, coc_marker *cocs, dfs_marker *dfs) {
   }
 }
 
+static uint16_t g_Ccap15 = 0;
+uint16_t get_Ccap15() { return g_Ccap15; }
+
+static int parse_CAP(codestream *buf) {
+  uint16_t Lcap = buf->get_word();
+  uint32_t Pcap = buf->get_dword();
+  uint16_t expected_words = (Lcap >= 6) ? static_cast<uint16_t>((Lcap - 6) / 2) : 0;
+  uint16_t read_words = 0;
+  for (int i = 0; i < 32; ++i) {
+    if (Pcap & (1u << (31 - i))) {
+      uint16_t v = buf->get_word();
+      if (i == 14) g_Ccap15 = v;  // Part 15
+      read_words++;
+    }
+  }
+  while (read_words < expected_words) {
+    buf->get_word();
+    read_words++;
+  }
+  return EXIT_SUCCESS;
+}
+
 uint32_t parse_main_header(codestream *buf, siz_marker *siz, cod_marker *cod, coc_marker *cocs,
                            qcd_marker *qcd, dfs_marker *dfs) {
   if (buf->get_word() != SOC) {
@@ -342,11 +364,15 @@ uint32_t parse_main_header(codestream *buf, siz_marker *siz, cod_marker *cod, co
     return 0;
   }
 
+  g_Ccap15 = 0;
   uint16_t marker;
   while ((marker = buf->get_word()) != SOD) {
     switch (marker) {
       case SIZ:
         parse_SIZ(buf, siz);
+        break;
+      case CAP:
+        parse_CAP(buf);
         break;
       case COD:
         parse_COD(buf, siz, cod);
