@@ -4,10 +4,6 @@ project(rtp_decoder LANGUAGES CXX DESCRIPTION "RTP decoder and JPEG 2000 codestr
 #set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
-## MACRO DEFINITION
-set(CMAKE_CXX_FLAGS
-    "${CMAKE_CXX_FLAGS} -D__RTP_NO_CRYPTO__ -D__RTP_SILENT__"
-)
 ## WARNING
 set(CMAKE_CXX_FLAGS
     "${CMAKE_CXX_FLAGS} -Wstrict-aliasing -Wall -Wextra -Wconversion -Wunused-parameter -Wformat=0 -fexceptions"
@@ -35,34 +31,14 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS} -O3 -g")
 set(CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS} -Os -g")
 
 add_executable(rtp_decoder
-    #    receiving_poll.cc
     frame_handler.hpp
+    rtp_receiver.hpp
+    rtp_receiver.cpp
     receiving_hook.cpp
 )
 
-list(APPEND UVGRTP_CXX_FLAGS "-DNDEBUG")
 target_compile_definitions(${PROJECT_NAME} PRIVATE NDEBUG)
 
-include(CheckCXXSymbolExists)
-    check_cxx_symbol_exists(getrandom sys/random.h HAVE_GETRANDOM)
-    check_cxx_symbol_exists(sendmsg sys/socket.h HAVE_SENDMSG)
-    check_cxx_symbol_exists(sendmmsg sys/socket.h HAVE_SENDMMSG)
-    if(HAVE_GETRANDOM)
-        list(APPEND UVGRTP_CXX_FLAGS "-DUVGRTP_HAVE_GETRANDOM=1")
-        target_compile_definitions(${PROJECT_NAME} PRIVATE UVGRTP_HAVE_GETRANDOM=1)
-    endif()
-    if(HAVE_SENDMSG)
-        list(APPEND UVGRTP_CXX_FLAGS "-DUVGRTP_HAVE_SENDMSG=1")
-        target_compile_definitions(${PROJECT_NAME} PRIVATE UVGRTP_HAVE_SENDMSG=1)
-    endif()
-    if(HAVE_SENDMMSG)
-        list(APPEND UVGRTP_CXX_FLAGS "-DUVGRTP_HAVE_SENDMMSG=1")
-        target_compile_definitions(${PROJECT_NAME} PRIVATE UVGRTP_HAVE_SENDMMSG=1)
-    endif()
-
 add_subdirectory(packet_parser)
-add_subdirectory(uvgrtp)
 target_include_directories(rtp_decoder PRIVATE ./ ./packet_parser)
 target_link_libraries(rtp_decoder PUBLIC pthread)
-
-
