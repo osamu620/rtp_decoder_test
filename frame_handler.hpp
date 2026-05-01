@@ -58,6 +58,13 @@ class frame_handler {
 
   size_t get_total_frames() const { return total_frames; }
 
+  void set_precinct_callback(tile_hanlder::PrecinctReadyCb cb, void *arg) {
+    tile_hndr.set_precinct_callback(cb, arg);
+  }
+
+  void set_parse_holdback(uint32_t n) { tile_hndr.set_parse_holdback(n); }
+  uint32_t get_parse_holdback() const { return tile_hndr.get_parse_holdback(); }
+
   double get_cumlative_time_then_reset() {
     double ret     = cumlative_time;
     cumlative_time = 0.0;

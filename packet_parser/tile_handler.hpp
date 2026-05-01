@@ -12,6 +12,11 @@
 #include "utils.hpp"
 
 class tile_hanlder {
+ public:
+  // Fired after each successful parse_one_precinct(), in PID order, on the parser thread.
+  // Keep work minimal — long callbacks defeat the sub-codestream-latency goal.
+  using PrecinctReadyCb = void (*)(void *user, const prec_ *pp, uint8_t c, uint8_t r, uint16_t p);
+
  private:
   std::vector<tile_> tiles;
   siz_marker siz;
@@ -22,6 +27,18 @@ class tile_hanlder {
   uint32_t num_tiles_x;
   uint32_t num_tiles_y;
   bool ready;
+  PrecinctReadyCb prec_cb_;
+  void *prec_cb_arg_;
+  // Number of precincts left unparsed behind the latest PID. Default 16 matches the
+  // original hard-coded value; lowering it has been observed to truncate every frame on
+  // a real 4K stream, so the safe minimum for correctness is not yet established.
+  // Likely culprits to investigate before lowering: (a) pull_data() ordering bug at
+  // frame_handler.hpp:112 (memcpy runs before MH>=1 resets incoming_data_len), (b) the
+  // uint32_t* cast in the same memcpy truncates the destination address to 4-byte units,
+  // (c) RFC 9828 leaves bytes [0, POS-1] of resync packets unspecified — if they aren't
+  // codestream bytes, raw concatenation desynchronises the parser. The 16-precinct
+  // lookahead may be masking overshoot from one of these.
+  uint32_t parse_holdback_;
 
  public:
   tile_hanlder()
@@ -33,7 +50,18 @@ class tile_hanlder {
         dfs({}),
         num_tiles_x(0),
         num_tiles_y(0),
-        ready(false) {}
+        ready(false),
+        prec_cb_(nullptr),
+        prec_cb_arg_(nullptr),
+        parse_holdback_(16) {}
+
+  void set_precinct_callback(PrecinctReadyCb cb, void *arg) {
+    prec_cb_     = cb;
+    prec_cb_arg_ = arg;
+  }
+
+  void set_parse_holdback(uint32_t n) { parse_holdback_ = n; }
+  uint32_t get_parse_holdback() const { return parse_holdback_; }
   siz_marker *get_siz() { return &siz; }
   cod_marker *get_cod() { return &cod; }
   coc_marker *get_cocs() { return cocs; }
@@ -93,11 +121,17 @@ class tile_hanlder {
     // uint32_t s = PID / 3;
     // uint32_t c = PID % 3;
 
-    for (int32_t i = PID - tile->crp_idx; i > 16; --i) {
-      ret = parse_one_precinct(tile, this->cocs);
+    const int32_t holdback = static_cast<int32_t>(parse_holdback_);
+    for (int32_t i = PID - tile->crp_idx; i > holdback; --i) {
+      const crp_status ct = tile->crp[tile->crp_idx];
+      ret                 = parse_one_precinct(tile, this->cocs);
       tile->crp_idx++;
       if (ret) {
         break;
+      }
+      if (prec_cb_) {
+        const prec_ *pp = &tile->tcomp[ct.c].res[ct.r].prec[ct.p];
+        prec_cb_(prec_cb_arg_, pp, ct.c, ct.r, ct.p);
       }
     }
     // } // This loop is omitted for speed
@@ -109,9 +143,14 @@ class tile_hanlder {
     tile_ *tile = tiles.data();
     const int n = static_cast<int>(tile->crp.size());
     for (; tile->crp_idx < n; tile->crp_idx++) {
-      ret = parse_one_precinct(tile, this->cocs);
+      const crp_status ct = tile->crp[tile->crp_idx];
+      ret                 = parse_one_precinct(tile, this->cocs);
       if (ret) {
         break;
+      }
+      if (prec_cb_) {
+        const prec_ *pp = &tile->tcomp[ct.c].res[ct.r].prec[ct.p];
+        prec_cb_(prec_cb_arg_, pp, ct.c, ct.r, ct.p);
       }
     }
     return ret;

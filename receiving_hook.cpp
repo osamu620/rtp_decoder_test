@@ -16,7 +16,8 @@ struct params_t {
 static void rtp_receive_hook(void *arg, const rtp::Frame &frame);
 
 void print_help(char *cmd) {
-  std::cout << "Usage:" << cmd << " address port duration(s) wait(ms)" << std::endl;
+  std::cout << "Usage:" << cmd << " address port [duration(s)] [wait(ms)] [holdback]" << std::endl;
+  std::cout << "  holdback: precincts to leave unparsed behind latest PID (default 16)" << std::endl;
 }
 
 int main(int argc, char *argv[]) {
@@ -40,6 +41,12 @@ int main(int argc, char *argv[]) {
   }
 
   j2k::frame_handler frame_handler;
+  if (argc > 5) {
+    const uint32_t HOLDBACK = static_cast<uint32_t>(std::stoul(argv[5]));
+    frame_handler.set_parse_holdback(HOLDBACK);
+  }
+  std::cout << "Parse hold-back: " << frame_handler.get_parse_holdback() << " precincts" << std::endl;
+
   rtp::Receiver receiver;
   params_t params{};
   params.frame_handler = &frame_handler;
