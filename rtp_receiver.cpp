@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <chrono>
 #include <cstring>
 #include <iostream>
 
@@ -22,8 +23,9 @@ inline uint32_t rd_u32(const uint8_t* p) {
 }  // namespace
 
 Receiver::Receiver() {
-  ring_.assign(kRingSize, Slot{});
+  ring_ = std::unique_ptr<Slot[]>(new Slot[kRingSize]);
   slab_.assign(kRingSize * kSlotBytes, 0);
+  job_queue_.assign(kJobQueueSize, Job{});
 }
 
 Receiver::~Receiver() { stop(); }
@@ -67,13 +69,17 @@ bool Receiver::start(const std::string& local_addr, uint16_t local_port, void* h
   started_  = false;
   next_seq_ = 0;
   pending_  = 0;
-  for (auto& s : ring_) {
-    s.filled = false;
-    s.len    = 0;
+  for (size_t i = 0; i < kRingSize; ++i) {
+    ring_[i].filled = false;
+    ring_[i].len    = 0;
+    ring_[i].in_worker.store(0, std::memory_order_relaxed);
   }
+  job_head_.store(0, std::memory_order_relaxed);
+  job_tail_.store(0, std::memory_order_relaxed);
   lost_packets_.store(0, std::memory_order_relaxed);
 
   running_.store(true, std::memory_order_release);
+  worker_ = std::thread([this] { worker_loop(); });
   thread_ = std::thread([this] { recv_loop(); });
   return true;
 }
@@ -85,8 +91,13 @@ void Receiver::stop() {
     ::close(sock_fd_);
     sock_fd_ = -1;
   }
-  if (was_running && thread_.joinable()) {
-    thread_.join();
+  if (was_running) {
+    if (thread_.joinable()) thread_.join();
+    {
+      std::lock_guard<std::mutex> lk(worker_mu_);
+    }
+    worker_cv_.notify_all();
+    if (worker_.joinable()) worker_.join();
   }
 }
 
@@ -144,7 +155,7 @@ void Receiver::handle_dgram(uint8_t* data, size_t len) {
     size_t i   = next_seq_ & (kRingSize - 1);
     Slot& head = ring_[i];
     if (head.filled && head.seq == next_seq_) {
-      dispatch(slab_.data() + i * kSlotBytes, head.len, head.seq);
+      dispatch(i, head.len, head.seq);
       head.filled = false;
       head.len    = 0;
       --pending_;
@@ -161,6 +172,11 @@ void Receiver::handle_dgram(uint8_t* data, size_t len) {
     if (slot.seq == seq) return;  // duplicate
     return;                       // alias from a stale entry beyond ring capacity; drop
   }
+  // Worker may still own this slab slot from an earlier in-flight job.
+  if (slot.in_worker.load(std::memory_order_acquire) != 0) {
+    lost_packets_.fetch_add(1, std::memory_order_relaxed);
+    return;
+  }
   std::memcpy(slab_.data() + idx * kSlotBytes, data, effective_len);
   slot.seq    = seq;
   slot.len    = effective_len;
@@ -172,10 +188,10 @@ void Receiver::handle_dgram(uint8_t* data, size_t len) {
 
 void Receiver::release_in_order() {
   while (pending_ > 0) {
-    size_t i  = next_seq_ & (kRingSize - 1);
-    Slot& s   = ring_[i];
+    size_t i = next_seq_ & (kRingSize - 1);
+    Slot& s  = ring_[i];
     if (!s.filled || s.seq != next_seq_) break;
-    dispatch(slab_.data() + i * kSlotBytes, s.len, s.seq);
+    dispatch(i, s.len, s.seq);
     s.filled = false;
     s.len    = 0;
     --pending_;
@@ -183,27 +199,84 @@ void Receiver::release_in_order() {
   }
 }
 
-void Receiver::dispatch(const uint8_t* data, size_t len, uint16_t seq) {
-  uint8_t b0 = data[0];
-  uint8_t b1 = data[1];
-  uint8_t cc  = b0 & 0x0F;
-  uint8_t ext = (b0 >> 4) & 0x1;
-  size_t hdr = 12u + 4u * cc;
+void Receiver::dispatch(size_t slab_idx, size_t len, uint16_t seq) {
+  // Hand off slab ownership to the worker, then enqueue the job.
+  ring_[slab_idx].in_worker.store(1, std::memory_order_release);
+
+  if (!enqueue_job(Job{slab_idx, len, seq})) {
+    // Worker is far behind. Drop this packet, return slab ownership to recv.
+    ring_[slab_idx].in_worker.store(0, std::memory_order_release);
+    lost_packets_.fetch_add(1, std::memory_order_relaxed);
+    return;
+  }
+  worker_cv_.notify_one();
+}
+
+bool Receiver::enqueue_job(const Job& j) {
+  size_t tail      = job_tail_.load(std::memory_order_relaxed);
+  size_t next_tail = (tail + 1) & (kJobQueueSize - 1);
+  if (next_tail == job_head_.load(std::memory_order_acquire)) {
+    return false;  // full
+  }
+  job_queue_[tail] = j;
+  job_tail_.store(next_tail, std::memory_order_release);
+  return true;
+}
+
+bool Receiver::dequeue_job(Job& out) {
+  size_t head = job_head_.load(std::memory_order_relaxed);
+  if (head == job_tail_.load(std::memory_order_acquire)) {
+    return false;  // empty
+  }
+  out = job_queue_[head];
+  job_head_.store((head + 1) & (kJobQueueSize - 1), std::memory_order_release);
+  return true;
+}
+
+void Receiver::worker_loop() {
+  while (running_.load(std::memory_order_acquire)) {
+    Job j;
+    if (dequeue_job(j)) {
+      process_job(j);
+      continue;
+    }
+    std::unique_lock<std::mutex> lk(worker_mu_);
+    worker_cv_.wait_for(lk, std::chrono::milliseconds(1), [this] {
+      return !running_.load(std::memory_order_acquire)
+             || job_head_.load(std::memory_order_acquire)
+                    != job_tail_.load(std::memory_order_acquire);
+    });
+  }
+  // Drain remaining jobs so in-flight slot ownership flags don't leak.
+  Job j;
+  while (dequeue_job(j)) {
+    process_job(j);
+  }
+}
+
+void Receiver::process_job(const Job& j) {
+  const uint8_t* data = slab_.data() + j.slab_idx * kSlotBytes;
+  uint8_t b0          = data[0];
+  uint8_t b1          = data[1];
+  uint8_t cc          = b0 & 0x0F;
+  uint8_t ext         = (b0 >> 4) & 0x1;
+  size_t hdr          = 12u + 4u * cc;
   if (ext) {
     uint16_t ext_words = rd_u16(data + hdr + 2);
     hdr += 4u + 4u * ext_words;
   }
-  if (hdr > len) return;
-
-  Frame f{};
-  f.seq          = seq;
-  f.timestamp    = rd_u32(data + 4);
-  f.ssrc         = rd_u32(data + 8);
-  f.marker       = (b1 >> 7) & 0x1;
-  f.payload_type = b1 & 0x7F;
-  f.payload      = const_cast<uint8_t*>(data + hdr);
-  f.payload_len  = len - hdr;
-  if (hook_) hook_(hook_arg_, f);
+  if (hdr <= j.len && hook_) {
+    Frame f{};
+    f.seq          = j.seq;
+    f.timestamp    = rd_u32(data + 4);
+    f.ssrc         = rd_u32(data + 8);
+    f.marker       = (b1 >> 7) & 0x1;
+    f.payload_type = b1 & 0x7F;
+    f.payload      = const_cast<uint8_t*>(data + hdr);
+    f.payload_len  = j.len - hdr;
+    hook_(hook_arg_, f);
+  }
+  ring_[j.slab_idx].in_worker.store(0, std::memory_order_release);
 }
 
 }  // namespace rtp
