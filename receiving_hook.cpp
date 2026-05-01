@@ -88,7 +88,9 @@ static void rtp_receive_hook(void *arg, const rtp::Frame &frame) {
               << std::fixed << std::setprecision(4)
               << (1000.0 * (last_processed_frames - p->total_frames) / fh->get_duration()) << " fps, "
               << "trunc J2K frames = " << std::setw(5) << fh->get_trunc_frames() << ", "
-              << "lost RTP frames = " << std::setw(5) << p->receiver->lost_packets() << std::endl;
+              << "RTP drops: net=" << std::setw(5) << p->receiver->net_lost_packets()
+              << " busy=" << std::setw(5) << p->receiver->slot_busy_drops()
+              << " qfull=" << std::setw(5) << p->receiver->queue_full_drops() << std::endl;
     p->total_frames  = last_processed_frames;
     p->last_timetamp = frame.timestamp;
   }

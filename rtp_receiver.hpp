@@ -37,7 +37,14 @@ class Receiver {
   bool start(const std::string& local_addr, uint16_t local_port, void* hook_arg, Hook hook);
   void stop();
 
-  size_t lost_packets() const { return lost_packets_.load(std::memory_order_relaxed); }
+  // True network loss: packets the network/sender never delivered (force-advance miss),
+  // plus ring-alias drops where the slot was already occupied by a different sequence.
+  size_t net_lost_packets() const { return net_lost_packets_.load(std::memory_order_relaxed); }
+  // Backpressure drops: slab slot still owned by the worker thread (worker > kRingSize behind).
+  size_t slot_busy_drops() const { return slot_busy_drops_.load(std::memory_order_relaxed); }
+  // Backpressure drops: SPSC job queue full at dispatch (worker > kJobQueueSize behind).
+  size_t queue_full_drops() const { return queue_full_drops_.load(std::memory_order_relaxed); }
+  size_t total_drops() const { return net_lost_packets() + slot_busy_drops() + queue_full_drops(); }
 
   void set_jitter_depth(size_t depth) { jitter_depth_ = depth; }
   void set_recv_buf_size(int bytes) { rcvbuf_size_ = bytes; }
@@ -86,7 +93,9 @@ class Receiver {
   uint16_t next_seq_ = 0;
   size_t pending_    = 0;
 
-  std::atomic<size_t> lost_packets_{0};
+  std::atomic<size_t> net_lost_packets_{0};
+  std::atomic<size_t> slot_busy_drops_{0};
+  std::atomic<size_t> queue_full_drops_{0};
 
   // SPSC job queue: producer = recv thread, consumer = worker thread.
   std::vector<Job> job_queue_;

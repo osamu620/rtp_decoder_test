@@ -110,10 +110,10 @@ class frame_handler {
   //   }
 
   void pull_data(uint8_t *__restrict__ payload, size_t size, int marker) {
-    const uint32_t MH                 = payload[0] >> 6;
-    const uint32_t POS_PID            = __builtin_bswap32(*(uint32_t *)(payload + 4));
-    const uint32_t POS                = POS_PID >> 20;
-    const uint32_t PID                = POS_PID & 0x000FFFFF;
+    const uint32_t MH      = payload[0] >> 6;
+    const uint32_t ORDB    = (payload[1] >> 7) & 1u;  // RFC 9828 body header: resync-present bit
+    const uint32_t POS_PID = __builtin_bswap32(*(uint32_t *)(payload + 4));
+    const uint32_t PID     = POS_PID & 0x000FFFFF;    // valid only when ORDB=1
     uint8_t *__restrict__ j2k_payload = payload + 8;
     // std::memcpy(this->incoming_data + incoming_data_len, data, size);
     std::memcpy(reinterpret_cast<uint32_t *>(this->incoming_data) + (incoming_data_len >> 2), j2k_payload,
@@ -141,7 +141,7 @@ class frame_handler {
     }
 
     incoming_data_len += size;
-    if (POS && MH == 0 && !is_parsing_failure && is_passed_header) {
+    if (ORDB && MH == 0 && !is_parsing_failure && is_passed_header) {
       ACTION(parse, PID);
     }
 

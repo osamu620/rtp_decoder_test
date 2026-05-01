@@ -76,7 +76,9 @@ bool Receiver::start(const std::string& local_addr, uint16_t local_port, void* h
   }
   job_head_.store(0, std::memory_order_relaxed);
   job_tail_.store(0, std::memory_order_relaxed);
-  lost_packets_.store(0, std::memory_order_relaxed);
+  net_lost_packets_.store(0, std::memory_order_relaxed);
+  slot_busy_drops_.store(0, std::memory_order_relaxed);
+  queue_full_drops_.store(0, std::memory_order_relaxed);
 
   running_.store(true, std::memory_order_release);
   worker_ = std::thread([this] { worker_loop(); });
@@ -160,7 +162,7 @@ void Receiver::handle_dgram(uint8_t* data, size_t len) {
       head.len    = 0;
       --pending_;
     } else {
-      lost_packets_.fetch_add(1, std::memory_order_relaxed);
+      net_lost_packets_.fetch_add(1, std::memory_order_relaxed);
     }
     ++next_seq_;
     diff = static_cast<int16_t>(seq - next_seq_);
@@ -169,12 +171,15 @@ void Receiver::handle_dgram(uint8_t* data, size_t len) {
   size_t idx = seq & (kRingSize - 1);
   Slot& slot = ring_[idx];
   if (slot.filled) {
-    if (slot.seq == seq) return;  // duplicate
-    return;                       // alias from a stale entry beyond ring capacity; drop
+    if (slot.seq == seq) return;  // duplicate, not a loss
+    // Alias: ring slot already holds a different seq from a prior wrap-around.
+    // The new packet was received but cannot be stored — count as net loss.
+    net_lost_packets_.fetch_add(1, std::memory_order_relaxed);
+    return;
   }
   // Worker may still own this slab slot from an earlier in-flight job.
   if (slot.in_worker.load(std::memory_order_acquire) != 0) {
-    lost_packets_.fetch_add(1, std::memory_order_relaxed);
+    slot_busy_drops_.fetch_add(1, std::memory_order_relaxed);
     return;
   }
   std::memcpy(slab_.data() + idx * kSlotBytes, data, effective_len);
@@ -206,7 +211,7 @@ void Receiver::dispatch(size_t slab_idx, size_t len, uint16_t seq) {
   if (!enqueue_job(Job{slab_idx, len, seq})) {
     // Worker is far behind. Drop this packet, return slab ownership to recv.
     ring_[slab_idx].in_worker.store(0, std::memory_order_release);
-    lost_packets_.fetch_add(1, std::memory_order_relaxed);
+    queue_full_drops_.fetch_add(1, std::memory_order_relaxed);
     return;
   }
   worker_cv_.notify_one();
