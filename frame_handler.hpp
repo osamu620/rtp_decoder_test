@@ -65,6 +65,11 @@ class frame_handler {
   void set_parse_holdback(uint32_t n) { tile_hndr.set_parse_holdback(n); }
   uint32_t get_parse_holdback() const { return tile_hndr.get_parse_holdback(); }
 
+#ifdef PARSER_OVERSHOOT_INSTR
+  tile_hanlder::OvershootStats get_overshoot_stats() const { return tile_hndr.get_overshoot_stats(); }
+  void reset_overshoot_stats() { tile_hndr.reset_overshoot_stats(); }
+#endif
+
   double get_cumlative_time_then_reset() {
     double ret     = cumlative_time;
     cumlative_time = 0.0;
@@ -141,9 +146,17 @@ class frame_handler {
       }
     }
 
+    const size_t len_before = incoming_data_len;
     incoming_data_len += size;
-    if (ORDB && MH == 0 && !is_parsing_failure && is_passed_header) {
-      ACTION(parse, PID);
+    if (ORDB && MH == 0 && is_passed_header) {
+      // Append the resync byte offset to the parser's signal queue. Even on a failed
+      // frame we record it (cheap; restart() clears at frame end).
+      const uint32_t POS         = POS_PID >> 20;
+      const uint32_t resync_byte = static_cast<uint32_t>(len_before) + POS;
+      tile_hndr.append_signal(resync_byte);
+      if (!is_parsing_failure) {
+        ACTION(parse, PID);
+      }
     }
 
     if (marker) {  // when EOC comes

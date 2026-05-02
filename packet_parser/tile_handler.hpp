@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <cassert>
+#include <deque>
 #include <vector>
 #include "j2k_packet.hpp"
 #include "utils.hpp"
@@ -16,6 +17,28 @@ class tile_hanlder {
   // Fired after each successful parse_one_precinct(), in PID order, on the parser thread.
   // Keep work minimal — long callbacks defeat the sub-codestream-latency goal.
   using PrecinctReadyCb = void (*)(void *user, const prec_ *pp, uint8_t c, uint8_t r, uint16_t p);
+
+#ifdef PARSER_OVERSHOOT_INSTR
+  // After each parse_one_precinct() that lands at a signaled byte boundary, we compare
+  // parser_end against the authoritative resync byte. A mismatch means the parser
+  // disagreed with the encoder about the precinct's end — drift caught and corrected by
+  // the snap. failed_parses records parse errors with the precinct coordinates.
+  struct OvershootStats {
+    size_t precincts_parsed   = 0;
+    size_t sum_precinct_bytes = 0;
+    size_t snaps_with_drift   = 0;  // snap fired with non-zero correction
+    size_t max_drift_bytes    = 0;
+    size_t sum_drift_bytes    = 0;
+    size_t failed_parses      = 0;
+    uint32_t last_fail_c      = 0;
+    uint32_t last_fail_r      = 0;
+    uint32_t last_fail_p      = 0;
+    uint32_t last_fail_crp_idx = 0;
+    uint32_t last_fail_src_pos = 0;
+  };
+  OvershootStats get_overshoot_stats() const { return ostats_; }
+  void reset_overshoot_stats() { ostats_ = OvershootStats{}; }
+#endif
 
  private:
   std::vector<tile_> tiles;
@@ -38,7 +61,21 @@ class tile_hanlder {
   // (c) RFC 9828 leaves bytes [0, POS-1] of resync packets unspecified — if they aren't
   // codestream bytes, raw concatenation desynchronises the parser. The 16-precinct
   // lookahead may be masking overshoot from one of these.
-  uint32_t parse_holdback_;
+  uint32_t parse_holdback_;  // deprecated: byte-queue gate replaces precinct-count cushion
+
+  // FIFO of byte offsets in incoming_data where signaled (ORDB=1) precinct boundaries
+  // land. Each ORDB=1 RTP packet appends one entry. Entries are guaranteed monotonic in
+  // arrival order (= byte order). parse() uses signal_queue_.back() as the high-water
+  // mark to gate parsing — only parse precincts whose body bytes are surely buffered.
+  // After each parse_one_precinct, snap_to_signals() pops entries the parser passed and
+  // corrects src on drift. PID is intentionally NOT used as an index here: per RFC 9828
+  // PID = c + s*num_components, which is encoder-specific and does not map 1:1 to the
+  // parser's crp_idx (PCRL y,x,c,r) order.
+  std::deque<uint32_t> signal_queue_;
+
+#ifdef PARSER_OVERSHOOT_INSTR
+  OvershootStats ostats_;
+#endif
 
  public:
   tile_hanlder()
@@ -53,15 +90,24 @@ class tile_hanlder {
         ready(false),
         prec_cb_(nullptr),
         prec_cb_arg_(nullptr),
-        parse_holdback_(16) {}
+        parse_holdback_(0) {}
 
   void set_precinct_callback(PrecinctReadyCb cb, void *arg) {
     prec_cb_     = cb;
     prec_cb_arg_ = arg;
   }
 
+  // Optional EXTRA conservative cushion on top of the per-precinct end-of-body detection.
+  // Default 0 (no cushion needed) since precinct_starts_ now provides authoritative ends.
+  // Kept for A/B testing; setting non-zero just delays parsing by that many extra precincts.
   void set_parse_holdback(uint32_t n) { parse_holdback_ = n; }
   uint32_t get_parse_holdback() const { return parse_holdback_; }
+
+  // Called by frame_handler each time a body packet with ORDB=1 arrives. byte_offset is
+  // the absolute position in incoming_data of the resync point (start of some precinct's
+  // packet header). Entries arrive in byte order (RTP packet seq order); the queue is a
+  // straight FIFO. PID is intentionally not stored — see signal_queue_ comment.
+  void append_signal(uint32_t byte_offset) { signal_queue_.push_back(byte_offset); }
   siz_marker *get_siz() { return &siz; }
   cod_marker *get_cod() { return &cod; }
   coc_marker *get_cocs() { return cocs; }
@@ -110,44 +156,71 @@ class tile_hanlder {
     ready = true;
   }
 
-  int parse(uint32_t PID) {
-    int ret = EXIT_SUCCESS;
-    tile_ *tile;
-    // This loop is omitted for speed
-    // for (uint32_t t = 0; t < this->num_tiles_x * this->num_tiles_y; ++t) {
-    tile = tiles.data();  // + t;
+  int parse(uint32_t /*PID*/) {
+    int ret     = EXIT_SUCCESS;
+    tile_ *tile = tiles.data();
 
-    // Detail information of PID
-    // uint32_t s = PID / 3;
-    // uint32_t c = PID % 3;
+    // Each iteration:
+    //   1. Pop signals at or before current src (signal_queue_.front() represents the
+    //      start of the precinct we're about to parse — popping it is consuming, not
+    //      drift). If src happened to be PAST the signal (parser drifted earlier),
+    //      record drift but still pop.
+    //   2. Gate: stop if no signals remain (can't bound parsing safely) or if src has
+    //      already reached/passed the latest signal (the precinct starting there has a
+    //      body of unknown extent and may not be fully buffered).
+    //   3. Parse one precinct.
+    while (true) {
+      consume_passed_signals(tile);
+      if (signal_queue_.empty()) break;
+      if (static_cast<uint32_t>(tile->buf->get_pos()) >= signal_queue_.back()) break;
 
-    const int32_t holdback = static_cast<int32_t>(parse_holdback_);
-    for (int32_t i = PID - tile->crp_idx; i > holdback; --i) {
       const crp_status ct = tile->crp[tile->crp_idx];
-      ret                 = parse_one_precinct(tile, this->cocs);
+#ifdef PARSER_OVERSHOOT_INSTR
+      const size_t before_pos = tile->buf->get_pos();
+      tile->buf->reset_max_offset_read();
+#endif
+      ret = parse_one_precinct(tile, this->cocs);
       tile->crp_idx++;
       if (ret) {
+#ifdef PARSER_OVERSHOOT_INSTR
+        record_failure(tile->buf, ct, tile->crp_idx - 1);
+#endif
         break;
       }
+#ifdef PARSER_OVERSHOOT_INSTR
+      record_precinct(tile->buf, before_pos);
+#endif
       if (prec_cb_) {
         const prec_ *pp = &tile->tcomp[ct.c].res[ct.r].prec[ct.p];
         prec_cb_(prec_cb_arg_, pp, ct.c, ct.r, ct.p);
       }
     }
-    // } // This loop is omitted for speed
     return ret;
   }
 
   int flush() {
+    // EOC fires; all body bytes are buffered. Walk all remaining precincts. Pop signals
+    // before each parse to track drift; no gate (we have everything).
     int ret     = EXIT_SUCCESS;
     tile_ *tile = tiles.data();
     const int n = static_cast<int>(tile->crp.size());
     for (; tile->crp_idx < n; tile->crp_idx++) {
+      consume_passed_signals(tile);
       const crp_status ct = tile->crp[tile->crp_idx];
-      ret                 = parse_one_precinct(tile, this->cocs);
+#ifdef PARSER_OVERSHOOT_INSTR
+      const size_t before_pos = tile->buf->get_pos();
+      tile->buf->reset_max_offset_read();
+#endif
+      ret = parse_one_precinct(tile, this->cocs);
       if (ret) {
+#ifdef PARSER_OVERSHOOT_INSTR
+        record_failure(tile->buf, ct, static_cast<uint32_t>(tile->crp_idx));
+#endif
         break;
       }
+#ifdef PARSER_OVERSHOOT_INSTR
+      record_precinct(tile->buf, before_pos);
+#endif
       if (prec_cb_) {
         const prec_ *pp = &tile->tcomp[ct.c].res[ct.r].prec[ct.p];
         prec_cb_(prec_cb_arg_, pp, ct.c, ct.r, ct.p);
@@ -155,6 +228,48 @@ class tile_hanlder {
     }
     return ret;
   }
+
+ private:
+  // Pop any signals at or before current src. Called BEFORE each parse_one_precinct.
+  // If src exactly equals a signal, that signal marks the precinct we're about to parse
+  // — popping it is consuming, not drift. If src is past a signal, parser drifted past
+  // a precinct without landing on its start byte; record drift but don't snap-back
+  // (rewind would corrupt crp_idx alignment with src).
+  void consume_passed_signals(tile_ *tile) {
+    while (!signal_queue_.empty()) {
+      const uint32_t parser_pos = static_cast<uint32_t>(tile->buf->get_pos());
+      const uint32_t front      = signal_queue_.front();
+      if (parser_pos < front) break;
+#ifdef PARSER_OVERSHOOT_INSTR
+      if (parser_pos > front) {
+        const size_t drift = parser_pos - front;
+        ostats_.snaps_with_drift++;
+        ostats_.sum_drift_bytes += drift;
+        if (drift > ostats_.max_drift_bytes) ostats_.max_drift_bytes = drift;
+      }
+#endif
+      signal_queue_.pop_front();
+    }
+  }
+
+#ifdef PARSER_OVERSHOOT_INSTR
+  void record_precinct(codestream *buf, size_t before_pos) {
+    const size_t after_pos = buf->get_pos();
+    ostats_.precincts_parsed++;
+    ostats_.sum_precinct_bytes += (after_pos - before_pos);
+  }
+
+  void record_failure(codestream *buf, const crp_status &ct, uint32_t crp_idx) {
+    ostats_.failed_parses++;
+    ostats_.last_fail_c        = ct.c;
+    ostats_.last_fail_r        = ct.r;
+    ostats_.last_fail_p        = ct.p;
+    ostats_.last_fail_crp_idx  = crp_idx;
+    ostats_.last_fail_src_pos  = buf->get_pos();
+  }
+#endif
+
+ public:
 
   int read() {
     int ret;
@@ -168,6 +283,9 @@ class tile_hanlder {
   }
 
   void restart(uint32_t start_SOD) {
+    // New frame: clear the signal queue. The frame's first body packet will append
+    // start_SOD as its first signal (PID=0, POS=0 ⇒ byte_offset = size_MH = start_SOD).
+    signal_queue_.clear();
     for (uint32_t t = 0; t < num_tiles_x * num_tiles_y; ++t) {
       tile_ *tile   = &tiles[t];
       tile->crp_idx = 0;

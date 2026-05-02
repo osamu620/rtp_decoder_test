@@ -91,6 +91,24 @@ static void rtp_receive_hook(void *arg, const rtp::Frame &frame) {
               << "RTP drops: net=" << std::setw(5) << p->receiver->net_lost_packets()
               << " busy=" << std::setw(5) << p->receiver->slot_busy_drops()
               << " qfull=" << std::setw(5) << p->receiver->queue_full_drops() << std::endl;
+#ifdef PARSER_OVERSHOOT_INSTR
+    const auto os = fh->get_overshoot_stats();
+    const double avg_prec_bytes =
+        os.precincts_parsed ? static_cast<double>(os.sum_precinct_bytes) / os.precincts_parsed : 0.0;
+    const double avg_drift =
+        os.snaps_with_drift ? static_cast<double>(os.sum_drift_bytes) / os.snaps_with_drift : 0.0;
+    std::cout << "  Parser: precincts=" << os.precincts_parsed
+              << " avg_prec_bytes=" << std::fixed << std::setprecision(1) << avg_prec_bytes
+              << " drift_snaps=" << os.snaps_with_drift << " max_drift_bytes=" << os.max_drift_bytes
+              << " mean_drift=" << std::fixed << std::setprecision(1) << avg_drift << std::endl;
+    if (os.failed_parses) {
+      std::cout << "  Failures: count=" << os.failed_parses << " last={c=" << os.last_fail_c
+                << " r=" << os.last_fail_r << " p=" << os.last_fail_p
+                << " crp_idx=" << os.last_fail_crp_idx << " src=" << os.last_fail_src_pos << "}"
+                << std::endl;
+    }
+    fh->reset_overshoot_stats();
+#endif
     p->total_frames  = last_processed_frames;
     p->last_timetamp = frame.timestamp;
   }
