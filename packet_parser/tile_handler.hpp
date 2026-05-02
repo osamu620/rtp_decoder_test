@@ -162,7 +162,7 @@ class tile_hanlder {
           coc_marker *coc = &cocs[c];
           if (coc->NL > 32) {
             assert(dfs.idx == coc->NL - 128);
-            coc->NL = dfs.Idfs;
+            coc->NL = static_cast<uint8_t>(dfs.Idfs);
           }
           parepare_tcomp_structure(tcp, coc, &dfs);
         }

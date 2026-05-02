@@ -194,7 +194,7 @@ class frame_handler {
           tile_hndr.create(&cs);
           is_passed_header = 1;
         } else {
-          start_SOD += size;
+          start_SOD += static_cast<uint32_t>(size);
         }
         if (start_SOD == 0) {
           return;  // something wrong

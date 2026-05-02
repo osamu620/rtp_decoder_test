@@ -279,18 +279,18 @@ static int parse_QCD(codestream *buf, cod_marker *cod, qcd_marker *qcd, dfs_mark
     }
   } else {
     uint16_t tmp     = buf->get_word();
-    qcd->exponent[0] = tmp >> 11;
+    qcd->exponent[0] = static_cast<uint8_t>(tmp >> 11);
     qcd->mantissa[0] = tmp & 0x7FF;
     for (uint8_t i = 1; i <= NL; ++i) {
       if (dfs->type[i] == BOTH) {
         for (uint8_t b = 0; b < 3; ++b) {
           tmp                                = buf->get_word();
-          qcd->exponent[3 * (i - 1) + b + 1] = tmp >> 11;
+          qcd->exponent[3 * (i - 1) + b + 1] = static_cast<uint8_t>(tmp >> 11);
           qcd->mantissa[3 * (i - 1) + b + 1] = tmp & 0x7FF;
         }
       } else {
         tmp                            = buf->get_word();
-        qcd->exponent[3 * (i - 1) + 1] = tmp >> 11;
+        qcd->exponent[3 * (i - 1) + 1] = static_cast<uint8_t>(tmp >> 11);
         qcd->mantissa[3 * (i - 1) + 1] = tmp & 0x7FF;
       }
     }

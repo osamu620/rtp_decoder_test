@@ -248,15 +248,14 @@ static void rtp_receive_hook(void *arg, const rtp::Frame &frame) {
     p->last_timetamp = frame.timestamp;
   }
   if (frame.timestamp >= p->last_timetamp + 45000) {
+    const double frames_in_window = static_cast<double>(last_processed_frames - p->total_frames);
     std::cout << "Elapsed time: " << std::left << std::setw(8) << std::right << std::fixed
               << std::setprecision(3)
-              << (fh->get_cumlative_time_then_reset() / 1000.0
-                  / ((last_processed_frames - p->total_frames)))
-              << " [ms/frame], ";
+              << (fh->get_cumlative_time_then_reset() / 1000.0 / frames_in_window) << " [ms/frame], ";
 
     std::cout << "Processed frames: " << std::setw(7) << last_processed_frames << ", " << std::setw(7)
               << std::fixed << std::setprecision(4)
-              << (1000.0 * (last_processed_frames - p->total_frames) / fh->get_duration()) << " fps, "
+              << (1000.0 * frames_in_window / fh->get_duration()) << " fps, "
               << "trunc J2K frames = " << std::setw(5) << fh->get_trunc_frames() << ", "
               << "RTP drops: net=" << std::setw(5) << p->receiver->net_lost_packets()
               << " busy=" << std::setw(5) << p->receiver->slot_busy_drops()
@@ -264,9 +263,13 @@ static void rtp_receive_hook(void *arg, const rtp::Frame &frame) {
 #ifdef PARSER_OVERSHOOT_INSTR
     const auto os = fh->get_overshoot_stats();
     const double avg_prec_bytes =
-        os.precincts_parsed ? static_cast<double>(os.sum_precinct_bytes) / os.precincts_parsed : 0.0;
+        os.precincts_parsed
+            ? static_cast<double>(os.sum_precinct_bytes) / static_cast<double>(os.precincts_parsed)
+            : 0.0;
     const double avg_drift =
-        os.snaps_with_drift ? static_cast<double>(os.sum_drift_bytes) / os.snaps_with_drift : 0.0;
+        os.snaps_with_drift
+            ? static_cast<double>(os.sum_drift_bytes) / static_cast<double>(os.snaps_with_drift)
+            : 0.0;
     std::cout << "  Parser: precincts=" << os.precincts_parsed
               << " avg_prec_bytes=" << std::fixed << std::setprecision(1) << avg_prec_bytes
               << " drift_snaps=" << os.snaps_with_drift << " max_drift_bytes=" << os.max_drift_bytes

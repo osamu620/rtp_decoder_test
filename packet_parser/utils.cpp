@@ -54,7 +54,7 @@ uint32_t get_bytes_allocated(void) { return g_allocated_bytes; }
 // worth of structure on the user's 4K@60 stream and must not overflow; if a future
 // stream requires more, increase BUFSIZE.
 void *stackAlloc(const size_t n, int reset) {
-  g_allocated_bytes += n;
+  g_allocated_bytes += static_cast<uint32_t>(n);
   alignas(8) static uint8_t buffer[BUFSIZE] = {0};
   static size_t index                       = 0;
   if (reset) {

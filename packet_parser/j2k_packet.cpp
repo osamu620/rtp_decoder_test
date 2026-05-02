@@ -124,7 +124,7 @@ static tagtree_node *tag_tree_init(uint32_t w, uint32_t h) {
   return res;
 }
 
-void tag_tree_zero(tagtree_node *t, uint32_t w, uint32_t h, uint32_t val) {
+void tag_tree_zero(tagtree_node *t, uint32_t w, uint32_t h, [[maybe_unused]] uint32_t val) {
   [[maybe_unused]] uint32_t i;
   uint32_t siz = tag_tree_size(w, h);
   std::memset(t, 0, sizeof(tagtree_node) * siz);
@@ -343,7 +343,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
 
       if (incl) {
         cblk->incl   = 1;
-        cblk->zbp    = tag_tree_decode(s, pband->zbp + cblkno, 14);
+        cblk->zbp    = static_cast<uint8_t>(tag_tree_decode(s, pband->zbp + cblkno, 14));
         cblk->lblock = 3;
 
         // Decode number of passes.
@@ -370,7 +370,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
           printf("Block with length beyond 16 bits\n");
           return EXIT_FAILURE;
         }
-        cblk->lblock += llen;
+        cblk->lblock = static_cast<uint8_t>(cblk->lblock + llen);
 
         uint8_t bypass_term_threshold = 0;
         uint8_t bits_to_read          = 0;
@@ -472,11 +472,11 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
             segment_passes      = newpasses > 1 ? 3 - cblk->npasses % 3 : 1;
             next_segment_passes = 1;
           }
-          bits_to_read  = cblk->lblock + int_log2(segment_passes);
+          bits_to_read  = static_cast<uint8_t>(cblk->lblock + int_log2(segment_passes));
           segment_bytes = s->packetheader_get_bits(bits_to_read);
           cblk->pass_lengths[1] += segment_bytes;
         } else if (!(cblk->modes & (CMODE_TERMALL | CMODE_BYPASS))) {
-          bits_to_read   = cblk->lblock + int_log2(newpasses);
+          bits_to_read   = static_cast<uint8_t>(cblk->lblock + int_log2(newpasses));
           segment_bytes  = s->packetheader_get_bits(bits_to_read);
           segment_passes = newpasses;
         } else if (cblk->modes & CMODE_TERMALL) {
@@ -488,28 +488,28 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
           bypass_term_threshold = 10;
           if (cblk->npasses < bypass_term_threshold) {
             segment_passes      = LOCAL_MIN(bypass_term_threshold - cblk->npasses, newpasses);
-            bits_to_read        = cblk->lblock + int_log2(segment_passes);
+            bits_to_read        = static_cast<uint8_t>(cblk->lblock + int_log2(segment_passes));
             next_segment_passes = 2;
           } else {
             segment_passes      = newpasses > 1 ? 2 - (cblk->npasses - bypass_term_threshold) % 3 : 1;
-            bits_to_read        = cblk->lblock + int_log2(segment_passes);
+            bits_to_read        = static_cast<uint8_t>(cblk->lblock + int_log2(segment_passes));
             next_segment_passes = 1;
           }
           segment_bytes = s->packetheader_get_bits(bits_to_read);
         }
 
-        cblk->npasses += segment_passes;
+        cblk->npasses = static_cast<uint8_t>(cblk->npasses + segment_passes);
 
         if ((cblk->modes & CMODE_HT) && cblk->ht_plhd == HT_PLHD_OFF) {
           newpasses -= segment_passes;
           while (newpasses > 0) {
             segment_passes      = newpasses > 1 ? next_segment_passes : 1;
             next_segment_passes = (uint8_t)(3 - next_segment_passes);
-            bits_to_read        = cblk->lblock + int_log2(segment_passes);
+            bits_to_read        = static_cast<uint8_t>(cblk->lblock + int_log2(segment_passes));
             segment_bytes       = s->packetheader_get_bits(bits_to_read);
             newpasses -= segment_passes;
             cblk->pass_lengths[1] += segment_bytes;
-            cblk->npasses += segment_passes;
+            cblk->npasses = static_cast<uint8_t>(cblk->npasses + segment_passes);
           }
         } else {
           newpasses -= segment_passes;
@@ -517,7 +517,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
             if (bypass_term_threshold != 0) {
               segment_passes      = newpasses > 1 ? next_segment_passes : 1;
               next_segment_passes = (uint8_t)(3 - next_segment_passes);
-              bits_to_read        = cblk->lblock + int_log2(segment_passes);
+              bits_to_read        = static_cast<uint8_t>(cblk->lblock + int_log2(segment_passes));
             } else {
               if ((cblk->modes & CMODE_TERMALL) == 0) {
                 printf("Corrupted packet header is found.\n");
@@ -528,7 +528,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
             }
             segment_bytes = s->packetheader_get_bits(bits_to_read);
             newpasses -= segment_passes;
-            cblk->npasses += segment_passes;
+            cblk->npasses = static_cast<uint8_t>(cblk->npasses + segment_passes);
           }
         }
       }
@@ -557,7 +557,7 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
       if (prec->res_num == 0) {
         bnum = 0;
       } else {
-        bnum = b + 1;
+        bnum = static_cast<uint8_t>(b + 1);
       }
       if (get_log_file_fp() != nullptr) {
         fprintf(log_file, "%d,%d,%d\n", prec->res_num, bnum, cblk->length);
