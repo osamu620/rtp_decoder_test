@@ -20,8 +20,13 @@ uint32_t get_bytes_allocated(void);
 // appended by frame_handler as RTP packets arrive — no copy into a contiguous buffer.
 // Reads automatically transition across chunks. For codeblock body access where the
 // FPGA driver needs a contiguous pointer, take_contiguous() returns either a direct
-// pointer (when the body fits in one chunk) or a stackAlloc'd staging copy.
-void *stackAlloc(size_t n, int reset);
+// pointer (when the body fits in one chunk) or a heap-allocated staging copy.
+//
+// IMPORTANT: staging buffers must NOT come from stackAlloc — that arena is shared with
+// the per-stream tile/precinct/pband/blk/tagtree structures, and tile_handler::restart
+// resets its index every frame. A staging allocation from the same arena would overwrite
+// those structures. We use std::vector<uint8_t> per spanning codeblock instead, kept
+// alive until codestream::clear() (called at frame restart).
 
 class codestream {
  private:
@@ -30,6 +35,9 @@ class codestream {
     size_t len;
   };
   std::vector<Chunk> chunks_;
+  // Per-frame staging buffers for codeblock bodies that span chunk boundaries. Each
+  // entry is owned for the lifetime of the chain (cleared on clear()).
+  std::vector<std::vector<uint8_t>> staging_;
   size_t cur_chunk_                = 0;
   size_t cur_offset_               = 0;
   size_t consumed_before_cur_chunk_ = 0;
@@ -83,6 +91,7 @@ class codestream {
   void append_chunk(const uint8_t *base, size_t len) { chunks_.push_back({base, len}); }
   void clear() {
     chunks_.clear();
+    staging_.clear();
     cur_chunk_                 = 0;
     cur_offset_                = 0;
     consumed_before_cur_chunk_ = 0;
@@ -223,9 +232,13 @@ inline const uint8_t *codestream::take_contiguous(size_t len) {
     advance(len);
     return result;
   }
-  // Slow path: spans chunks; copy into a per-frame staging buffer.
-  uint8_t *staging = static_cast<uint8_t *>(stackAlloc(len, 0));
-  if (!staging) return nullptr;
+  // Slow path: spans chunks; copy into a per-frame staging buffer. Use a fresh
+  // std::vector so each spanning codeblock has its own contiguous storage that lives
+  // until clear() (= frame restart). Do NOT use stackAlloc here: the static arena is
+  // shared with per-stream tile/precinct/pband/blk/tagtree structures and would
+  // overwrite them after restart() resets the index.
+  staging_.emplace_back(len);
+  uint8_t *staging = staging_.back().data();
   size_t copied = 0;
   while (copied < len && cur_chunk_ < chunks_.size()) {
     size_t avail   = chunks_[cur_chunk_].len - cur_offset_;
