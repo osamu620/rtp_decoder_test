@@ -129,8 +129,9 @@ class frame_handler {
     // Safety: if EOC has been missed for many packets, held_slabs_ would otherwise grow
     // unbounded and exhaust the receiver's slot ring (causing busy/net drop cascades).
     // 3072 leaves ~1024 slots of headroom in a 4096-slot ring — enough for a couple of
-    // typical frames in flight while preventing runaway. Empirically observed at
-    // 800 Mbps when the kernel drops some EOC packets under recv-thread pressure.
+    // typical frames in flight while preventing runaway. After firing, we wait for the
+    // next MH packet before resuming parsing (otherwise cs.reset(start_SOD) would
+    // position us inside a body chunk).
     if (held_slabs_.size() >= 3072) {
       release_held_slabs();
       tile_hndr.restart(0);
@@ -138,7 +139,28 @@ class frame_handler {
       is_parsing_failure = 0;
       is_passed_header   = 0;
     }
-    const uint32_t MH      = payload[0] >> 6;
+
+    const uint32_t MH = payload[0] >> 6;
+
+    // Skip body packets while not actively tracking a frame (right after cap, after a
+    // parse failure, or before the first MH). Release the slab immediately so the
+    // receiver can recycle it. We resume on the next MH packet.
+    if (MH == 0 && (!is_passed_header || is_parsing_failure)) {
+      if (release_slab_cb_) release_slab_cb_(release_slab_arg_, slab_idx);
+      if (marker) {
+        // EOC of a frame we weren't tracking; account for it and reset state.
+        if (is_passed_header) {
+          trunc_frames++;
+          total_frames++;
+        }
+        is_parsing_failure = 0;
+        is_passed_header   = 0;
+        release_held_slabs();
+        tile_hndr.restart(0);
+      }
+      return;
+    }
+
     const uint32_t ORDB    = (payload[1] >> 7) & 1u;  // RFC 9828 body header: resync-present
     const uint32_t POS_PID = __builtin_bswap32(*(uint32_t *)(payload + 4));
     const uint32_t PID     = POS_PID & 0x000FFFFF;    // valid only when ORDB=1
@@ -146,9 +168,18 @@ class frame_handler {
 
     if (MH >= 1) {  // Main packet — start of a new frame's main header bytes.
       log_init(total_frames);
-      // The previous frame's chunks were released at EOC, so chain is empty here for
-      // the first Main packet of a frame. For partial main (MH=1, more main header to
-      // come), subsequent MH packets keep accumulating.
+      // Defensive: if we missed previous frame's EOC, the chain still holds stale
+      // chunks. Release them so this MH starts a fresh chain.
+      if (!held_slabs_.empty()) {
+        release_held_slabs();
+        tile_hndr.restart(0);
+        if (is_passed_header) {
+          trunc_frames++;
+          total_frames++;
+        }
+        is_passed_header = 0;
+      }
+      is_parsing_failure = 0;
       cs.append_chunk(j2k_payload, size);
       held_slabs_.push_back(slab_idx);
       chain_total_bytes_ += size;
@@ -173,7 +204,7 @@ class frame_handler {
         is_passed_header = 1;
       }
     } else {
-      // Body packet: append its J2K bytes to the chain.
+      // Body packet (and we're actively parsing): append its J2K bytes to the chain.
       cs.append_chunk(j2k_payload, size);
       held_slabs_.push_back(slab_idx);
       // Note resync byte before bumping the running total.
