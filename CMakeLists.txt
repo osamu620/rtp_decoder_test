@@ -33,7 +33,7 @@ add_executable(rtp_decoder
     frame_handler.hpp
     rtp_receiver.hpp
     rtp_receiver.cpp
-    receiving_hook.cpp
+    main.cpp
 )
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE NDEBUG)

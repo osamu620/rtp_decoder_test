@@ -12,7 +12,7 @@
 #include "j2k_packet.hpp"
 #include "utils.hpp"
 
-class tile_hanlder {
+class tile_handler {
  public:
   // Fired after each successful parse_one_precinct(), in PID order, on the parser thread.
   // Keep work minimal — long callbacks defeat the sub-codestream-latency goal.
@@ -89,7 +89,7 @@ class tile_hanlder {
 #endif
 
  public:
-  tile_hanlder()
+  tile_handler()
       : tiles({}),
         siz({}),
         cod({}),

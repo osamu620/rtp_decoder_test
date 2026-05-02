@@ -46,13 +46,13 @@ These are not runtime flags — flip them and rebuild:
   - `recoveries`, `skipped_precincts` — successful per-precinct recoveries after parse failures
   - `recover_no_signal` / `recover_bad_pid` / `recover_backward` — *why* a recovery attempt failed (each truncated frame attributable to one of these)
 
-The parser's per-stream structures (`prec_`, `pband_`, `blk_`, tag-trees) live in a single 4 MB static arena in `packet_parser/utils.cpp` (`stackAlloc`). The arena is reset per frame via `tile_hanlder::restart` → `stackAlloc(0, 1)`. Allocations from `create()` happen once per stream; pointers remain valid across the per-frame index reset because `create()` is not re-invoked.
+The parser's per-stream structures (`prec_`, `pband_`, `blk_`, tag-trees) live in a single 4 MB static arena in `packet_parser/utils.cpp` (`stackAlloc`). The arena is reset per frame via `tile_handler::restart` → `stackAlloc(0, 1)`. Allocations from `create()` happen once per stream; pointers remain valid across the per-frame index reset because `create()` is not re-invoked.
 
 ## Architecture
 
 The data flow is **NIC → kernel softirq → recv thread → SPSC job queue → worker thread → frame_handler → tile_handler → per-precinct parser → user callback**. Recv and worker run on separate cores; everything from `frame_handler` down runs on the worker.
 
-### 1. RTP reception (`rtp_receiver.{hpp,cpp}`, `receiving_hook.cpp`)
+### 1. RTP reception (`rtp_receiver.{hpp,cpp}`, `main.cpp`)
 
 `rtp::Receiver` owns:
 - a POSIX UDP socket bound to `<local_addr, local_port>` (IPv4),

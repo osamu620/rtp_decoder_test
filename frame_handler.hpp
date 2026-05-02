@@ -52,7 +52,7 @@ class frame_handler {
   int32_t is_passed_header;
   std::chrono::time_point<std::chrono::high_resolution_clock> start_time;
   double cumlative_time;
-  tile_hanlder tile_hndr;
+  tile_handler tile_hndr;
   codestream cs;
 
   ReleaseSlabCb release_slab_cb_;
@@ -91,7 +91,7 @@ class frame_handler {
 
   size_t get_total_frames() const { return total_frames; }
 
-  void set_precinct_callback(tile_hanlder::PrecinctReadyCb cb, void *arg) {
+  void set_precinct_callback(tile_handler::PrecinctReadyCb cb, void *arg) {
     tile_hndr.set_precinct_callback(cb, arg);
   }
 
@@ -104,7 +104,7 @@ class frame_handler {
   }
 
 #ifdef PARSER_OVERSHOOT_INSTR
-  tile_hanlder::OvershootStats get_overshoot_stats() const { return tile_hndr.get_overshoot_stats(); }
+  tile_handler::OvershootStats get_overshoot_stats() const { return tile_hndr.get_overshoot_stats(); }
   void reset_overshoot_stats() { tile_hndr.reset_overshoot_stats(); }
 #endif
 

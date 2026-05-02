@@ -116,7 +116,7 @@ If `busy=` or `qfull=` is non-zero, the worker thread is the bottleneck — chec
 
 ```
 rtp_receiver.{hpp,cpp}    Recv thread, slab ring (4096 × 9216 bytes), SPSC job queue, worker
-receiving_hook.cpp        CLI entry point, wires receiver to frame_handler
+main.cpp                  CLI entry point: arg parsing, NIC IRQ check, throughput stats hook
 frame_handler.hpp         Per-packet RTP/J2K sub-header parsing, chain assembly, EOC handling
 packet_parser/
   type.hpp                Marker structs, chain-based codestream reader (zero-copy)
