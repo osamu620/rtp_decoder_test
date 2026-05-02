@@ -61,6 +61,12 @@ class Receiver {
 
   void set_jitter_depth(size_t depth) { jitter_depth_ = depth; }
   void set_recv_buf_size(int bytes) { rcvbuf_size_ = bytes; }
+  // Linux CPU affinity for the recv and worker threads. -1 (default) leaves the OS
+  // scheduler in charge. Setting to distinct CPU indices prevents the threads from
+  // preempting each other under load — important at high bitrates where each thread
+  // approaches 100% of one core. Apply BEFORE calling start().
+  void set_recv_cpu(int cpu) { recv_cpu_ = cpu; }
+  void set_worker_cpu(int cpu) { worker_cpu_ = cpu; }
 
  private:
   // 4096 slots × 9216 bytes ≈ 38 MB. Larger than 1024 because the chain-reader keeps
@@ -105,6 +111,8 @@ class Receiver {
 
   size_t jitter_depth_ = 64;
   int rcvbuf_size_     = 16 * 1024 * 1024;
+  int recv_cpu_        = -1;
+  int worker_cpu_      = -1;
 
   std::unique_ptr<Slot[]> ring_;
   std::vector<uint8_t> slab_;

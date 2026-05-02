@@ -126,6 +126,18 @@ class frame_handler {
   inline size_t get_trunc_frames() const { return this->trunc_frames; }
 
   void pull_data(uint8_t *__restrict__ payload, size_t size, int marker, size_t slab_idx) {
+    // Safety: if EOC has been missed for many packets, held_slabs_ would otherwise grow
+    // unbounded and exhaust the receiver's slot ring (causing busy/net drop cascades).
+    // 3072 leaves ~1024 slots of headroom in a 4096-slot ring — enough for a couple of
+    // typical frames in flight while preventing runaway. Empirically observed at
+    // 800 Mbps when the kernel drops some EOC packets under recv-thread pressure.
+    if (held_slabs_.size() >= 3072) {
+      release_held_slabs();
+      tile_hndr.restart(0);
+      trunc_frames += 1;
+      is_parsing_failure = 0;
+      is_passed_header   = 0;
+    }
     const uint32_t MH      = payload[0] >> 6;
     const uint32_t ORDB    = (payload[1] >> 7) & 1u;  // RFC 9828 body header: resync-present
     const uint32_t POS_PID = __builtin_bswap32(*(uint32_t *)(payload + 4));

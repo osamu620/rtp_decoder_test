@@ -2,6 +2,8 @@
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <pthread.h>
+#include <sched.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -83,6 +85,22 @@ bool Receiver::start(const std::string& local_addr, uint16_t local_port, void* h
   running_.store(true, std::memory_order_release);
   worker_ = std::thread([this] { worker_loop(); });
   thread_ = std::thread([this] { recv_loop(); });
+
+  // Pin to distinct CPUs if requested. Best-effort: if the system doesn't have the
+  // requested CPU or affinity isn't supported, log to stderr and continue.
+  auto pin = [](std::thread& t, int cpu, const char* name) {
+    if (cpu < 0) return;
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    CPU_SET(cpu, &set);
+    int rc = ::pthread_setaffinity_np(t.native_handle(), sizeof(set), &set);
+    if (rc != 0) {
+      std::cerr << "rtp::Receiver: pthread_setaffinity_np(" << name << ", cpu=" << cpu
+                << ") failed: " << std::strerror(rc) << std::endl;
+    }
+  };
+  pin(thread_, recv_cpu_, "recv");
+  pin(worker_, worker_cpu_, "worker");
   return true;
 }
 
