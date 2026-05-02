@@ -44,10 +44,11 @@ int main(int argc, char *argv[]) {
   // receiver during destruction or final EOC (C++ destroys locals in reverse order).
   rtp::Receiver receiver;
   // Pin recv and worker to distinct cores so they don't preempt each other under load.
-  // On the Cortex-A53 ZCU102 (4 cores) this prevents kernel-side packet drops at high
-  // bitrates caused by the recv thread being descheduled while the worker is busy.
-  receiver.set_recv_cpu(0);
-  receiver.set_worker_cpu(1);
+  // On the Cortex-A53 ZCU102 (4 cores) we use cores 2 and 3 because cores 0/1 typically
+  // handle network IRQs and other kernel work — pinning user threads there causes
+  // contention and worsens recv drops. Cores 2/3 are usually idle.
+  receiver.set_recv_cpu(2);
+  receiver.set_worker_cpu(3);
   j2k::frame_handler frame_handler;
   if (argc > 5) {
     const uint32_t HOLDBACK = static_cast<uint32_t>(std::stoul(argv[5]));
