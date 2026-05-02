@@ -134,8 +134,10 @@ static void rtp_receive_hook(void *arg, const rtp::Frame &frame) {
               << " recoveries=" << os.recoveries << " skipped_precincts=" << os.skipped_precincts
               << std::endl;
     if (os.failed_parses) {
-      std::cout << "  Failures: count=" << os.failed_parses << " last={c=" << os.last_fail_c
-                << " r=" << os.last_fail_r << " p=" << os.last_fail_p
+      std::cout << "  Failures: count=" << os.failed_parses
+                << " recover_fail: no_sig=" << os.recover_no_signal
+                << " bad_pid=" << os.recover_bad_pid << " backward=" << os.recover_backward
+                << " last={c=" << os.last_fail_c << " r=" << os.last_fail_r << " p=" << os.last_fail_p
                 << " crp_idx=" << os.last_fail_crp_idx << " src=" << os.last_fail_src_pos << "}"
                 << std::endl;
     }

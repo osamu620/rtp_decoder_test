@@ -32,6 +32,10 @@ class tile_hanlder {
     size_t failed_parses      = 0;
     size_t recoveries         = 0;  // parse failures recovered by snapping to next signal
     size_t skipped_precincts  = 0;  // precincts skipped due to recovery
+    // Why try_recover returned false (incremented in addition to failed_parses):
+    size_t recover_no_signal  = 0;  // queue empty (no signal beyond cur_pos)
+    size_t recover_bad_pid    = 0;  // PID mapped out of crp_idx_by_pid_ bounds
+    size_t recover_backward   = 0;  // new_crp_idx < current crp_idx (would move backward)
     uint32_t last_fail_c      = 0;
     uint32_t last_fail_r      = 0;
     uint32_t last_fail_p      = 0;
@@ -292,17 +296,32 @@ class tile_hanlder {
     while (!signal_queue_.empty() && signal_queue_.front().byte_offset <= cur_pos) {
       signal_queue_.pop_front();
     }
-    if (signal_queue_.empty()) return false;
+    if (signal_queue_.empty()) {
+#ifdef PARSER_OVERSHOOT_INSTR
+      ostats_.recover_no_signal++;
+#endif
+      return false;
+    }
     const Signal sig = signal_queue_.front();
     const uint32_t nc = static_cast<uint32_t>(siz.Csiz);
     if (nc == 0) return false;
     const uint32_t c = sig.pid % nc;
     const uint32_t s = sig.pid / nc;
-    if (c >= crp_idx_by_pid_.size() || s >= crp_idx_by_pid_[c].size()) return false;
+    if (c >= crp_idx_by_pid_.size() || s >= crp_idx_by_pid_[c].size()) {
+#ifdef PARSER_OVERSHOOT_INSTR
+      ostats_.recover_bad_pid++;
+#endif
+      return false;
+    }
     const uint32_t new_crp_idx = crp_idx_by_pid_[c][s];
     // Accept new_crp_idx == current (resume at the same precinct from a corrected
     // position) or > current (skip ahead). Reject only if it would move backward.
-    if (new_crp_idx < static_cast<uint32_t>(tile->crp_idx)) return false;
+    if (new_crp_idx < static_cast<uint32_t>(tile->crp_idx)) {
+#ifdef PARSER_OVERSHOOT_INSTR
+      ostats_.recover_backward++;
+#endif
+      return false;
+    }
 #ifdef PARSER_OVERSHOOT_INSTR
     ostats_.recoveries++;
     ostats_.skipped_precincts += new_crp_idx - tile->crp_idx;
