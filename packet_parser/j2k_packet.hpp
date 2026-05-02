@@ -8,7 +8,6 @@
 #include "type.hpp"
 
 void tag_tree_zero(tagtree_node *t, uint32_t w, uint32_t h, uint32_t val);
-int read_tile(tile_ *tile, const coc_marker *coc, const dfs_marker *dfs);
 int parse_one_precinct(tile_ *tile, const coc_marker *cocs);
 
 int prepare_precinct_structure(tile_ *tile, const coc_marker *coc, const dfs_marker *dfs);

@@ -60,11 +60,6 @@ class codestream {
 
  public:
   codestream() = default;
-  // Backward-compat constructor: takes a single buffer pointer (length unspecified).
-  // Caller must call append_chunk to provide the actual length. Kept only so the
-  // existing frame_handler initializer-list `cs(incoming_data)` compiles during the
-  // transition; frame_handler will be updated to use append_chunk explicitly.
-  explicit codestream(uint8_t *) {}
 
 #ifdef PARSER_OVERSHOOT_INSTR
   size_t get_max_offset_read() const { return max_offset_read_; }

@@ -35,8 +35,6 @@ CLI args (positional, all but the first two optional):
 
 Defaults are tuned for ZCU102 / Cortex-A53 — see *Deployment* below.
 
-There is a second, **standalone**, offline parser entry point in `packet_parser/main.cpp` that reads a `.j2c` file from disk. It is not wired into the top-level CMake target — `packet_parser/CMakeLists.txt` is included via `add_subdirectory` only to attach sources to `rtp_decoder`, and `main.cpp` is excluded.
-
 ## Compile-time switches that change behavior
 
 These are not runtime flags — flip them and rebuild:

@@ -353,17 +353,6 @@ class tile_hanlder {
 
  public:
 
-  int read() {
-    int ret;
-    for (uint32_t t = 0; t < this->num_tiles_x * this->num_tiles_y; ++t) {
-      ret = read_tile(tiles.data() + t, this->cocs, &this->dfs);
-      if (ret) {
-        return ret;
-      }
-    }
-    return EXIT_SUCCESS;
-  }
-
   void restart(uint32_t /*start_SOD*/) {
     // New frame: clear the signal queue. The frame's first body packet will append
     // start_SOD as its first signal (PID=0, POS=0 ⇒ byte_offset = size_MH = start_SOD).

@@ -5,8 +5,6 @@ target_sources(rtp_decoder
     j2k_header.hpp
     j2k_packet.cpp
     j2k_packet.hpp
-#    j2k_tile.cpp
-#    j2k_tile.hpp
     type.hpp
     utils.cpp
     utils.hpp
