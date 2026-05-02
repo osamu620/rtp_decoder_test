@@ -547,6 +547,9 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
       if (cblk->length) {
         cblk->Scup =
             ((cblk->data[cblk->pass_lengths[0] - 1] << 4) + (cblk->data[cblk->pass_lengths[0] - 2] & 0x0F));
+        // The two reads above bypass the codestream reader's pointer; record them so
+        // PARSER_OVERSHOOT_INSTR builds can attribute overshoot to the Scup extraction.
+        s->note_external_read(cblk->data + cblk->pass_lengths[0] - 1);
       }
       [[maybe_unused]] uint8_t bnum;
       if (prec->res_num == 0) {

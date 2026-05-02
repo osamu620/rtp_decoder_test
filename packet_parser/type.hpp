@@ -22,9 +22,23 @@ class codestream {
   uint8_t tmp;
   uint8_t last;
   uint8_t bits;
+#ifdef PARSER_OVERSHOOT_INSTR
+  size_t max_offset_read_ = 0;  // highest byte offset (from origin) ever READ during parsing
+#endif
 
  public:
   explicit codestream(uint8_t *buf) : origin(buf), src(buf), tmp(0), last(0), bits(0) {}
+
+#ifdef PARSER_OVERSHOOT_INSTR
+  size_t get_max_offset_read() const { return max_offset_read_; }
+  void reset_max_offset_read() { max_offset_read_ = static_cast<size_t>(src - origin); }
+  void note_external_read(const uint8_t *addr) {
+    const size_t off = static_cast<size_t>(addr - origin);
+    if (off > max_offset_read_) max_offset_read_ = off;
+  }
+#else
+  void note_external_read(const uint8_t *) {}
+#endif
 
   uint8_t get_byte();
 
@@ -49,6 +63,10 @@ class codestream {
 
 inline uint8_t codestream::get_byte() {
   const uint8_t byte = *src++;
+#ifdef PARSER_OVERSHOOT_INSTR
+  const size_t off = static_cast<size_t>(src - origin) - 1;
+  if (off > max_offset_read_) max_offset_read_ = off;
+#endif
   return byte;
 }
 

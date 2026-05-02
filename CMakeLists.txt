@@ -39,6 +39,11 @@ add_executable(rtp_decoder
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE NDEBUG)
 
+option(PARSER_OVERSHOOT_INSTR "Track per-precinct parser byte overshoot/drift" OFF)
+if(PARSER_OVERSHOOT_INSTR)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE PARSER_OVERSHOOT_INSTR)
+endif()
+
 add_subdirectory(packet_parser)
 target_include_directories(rtp_decoder PRIVATE ./ ./packet_parser)
 target_link_libraries(rtp_decoder PUBLIC pthread)
