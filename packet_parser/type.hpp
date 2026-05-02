@@ -115,8 +115,9 @@ class codestream {
   void reset(uint32_t p);
   // Returns a pointer to len contiguous bytes starting at current position; advances by
   // len. If the bytes fit within the current chunk, the returned pointer is a direct
-  // chunk pointer. Otherwise, copies the bytes into a stackAlloc'd staging buffer.
-  // Used by codeblock body access where downstream consumers need contiguity.
+  // chunk pointer. Otherwise, copies the bytes into a per-frame heap-owned staging
+  // buffer (held alive in staging_, freed on clear()). Used by codeblock body access
+  // where downstream consumers need a contiguous pointer.
   const uint8_t *take_contiguous(size_t len);
 };
 
