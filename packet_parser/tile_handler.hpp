@@ -319,7 +319,9 @@ class tile_hanlder {
     const uint32_t s = sig.pid / nc;
     if (c >= crp_idx_by_pid_.size() || s >= crp_idx_by_pid_[c].size()) return false;
     const uint32_t new_crp_idx = crp_idx_by_pid_[c][s];
-    if (new_crp_idx <= static_cast<uint32_t>(tile->crp_idx)) return false;  // no progress
+    // Accept new_crp_idx == current (resume at the same precinct from a corrected
+    // position) or > current (skip ahead). Reject only if it would move backward.
+    if (new_crp_idx < static_cast<uint32_t>(tile->crp_idx)) return false;
 #ifdef PARSER_OVERSHOOT_INSTR
     ostats_.recoveries++;
     ostats_.skipped_precincts += new_crp_idx - tile->crp_idx;
