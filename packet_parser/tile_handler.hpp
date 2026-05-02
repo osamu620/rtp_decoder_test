@@ -193,7 +193,6 @@ class tile_hanlder {
     //      body of unknown extent and may not be fully buffered).
     //   3. Parse one precinct.
     while (true) {
-      consume_passed_signals(tile);
       if (signal_queue_.empty()) break;
       if (static_cast<uint32_t>(tile->buf->get_pos()) >= signal_queue_.back().byte_offset) break;
 
@@ -234,7 +233,6 @@ class tile_hanlder {
     tile_ *tile = tiles.data();
     const int n = static_cast<int>(tile->crp.size());
     for (; tile->crp_idx < n; tile->crp_idx++) {
-      consume_passed_signals(tile);
       const crp_status ct = tile->crp[tile->crp_idx];
 #ifdef PARSER_OVERSHOOT_INSTR
       const size_t before_pos = tile->buf->get_pos();
@@ -268,27 +266,10 @@ class tile_hanlder {
   }
 
  private:
-  // Pop any signals at or before current src. Called BEFORE each parse_one_precinct.
-  // If src exactly equals a signal, that signal marks the precinct we're about to parse
-  // — popping it is consuming, not drift. If src is past a signal, parser drifted past
-  // a precinct without landing on its start byte; record drift but don't snap-back
-  // (rewind would corrupt crp_idx alignment with src).
-  void consume_passed_signals(tile_ *tile) {
-    while (!signal_queue_.empty()) {
-      const uint32_t parser_pos = static_cast<uint32_t>(tile->buf->get_pos());
-      const uint32_t front      = signal_queue_.front().byte_offset;
-      if (parser_pos < front) break;
-#ifdef PARSER_OVERSHOOT_INSTR
-      if (parser_pos > front) {
-        const size_t drift = parser_pos - front;
-        ostats_.snaps_with_drift++;
-        ostats_.sum_drift_bytes += drift;
-        if (drift > ostats_.max_drift_bytes) ostats_.max_drift_bytes = drift;
-      }
-#endif
-      signal_queue_.pop_front();
-    }
-  }
+  // Note: signals are intentionally NOT popped during normal parse — they're kept in the
+  // queue so try_recover() has historical signals to reference if a parse_one_precinct
+  // fails mid-frame. The full per-frame queue is cleared in restart() at EOC. Signals
+  // ARE popped inside try_recover when they're consumed by recovery.
 
   // Recover from a parse_one_precinct failure: snap src to the next signaled byte
   // beyond the current parser position, and reset crp_idx to the precinct that signal
