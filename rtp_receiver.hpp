@@ -22,6 +22,11 @@ struct Frame {
   uint8_t payload_type;
   uint8_t* payload;
   size_t payload_len;
+  // Slab slot this packet's bytes live in. The hook implementation may keep the slab
+  // alive past the hook return by calling Receiver::release_slab(slab_idx) later — the
+  // worker thread does NOT clear in_worker on its own. This is what enables zero-copy
+  // chain parsing (frame_handler holds slabs across an entire frame).
+  size_t slab_idx;
 };
 
 class Receiver {
@@ -46,11 +51,23 @@ class Receiver {
   size_t queue_full_drops() const { return queue_full_drops_.load(std::memory_order_relaxed); }
   size_t total_drops() const { return net_lost_packets() + slot_busy_drops() + queue_full_drops(); }
 
+  // Releases a slab slot previously delivered via the hook's Frame::slab_idx.
+  // The hook's owner is responsible for calling this once the slab's bytes are no
+  // longer needed (e.g., at frame_handler::restart). Until called, recv will not
+  // reuse the slot — see Slot::in_worker.
+  void release_slab(size_t slab_idx) {
+    if (slab_idx < kRingSize) ring_[slab_idx].in_worker.store(0, std::memory_order_release);
+  }
+
   void set_jitter_depth(size_t depth) { jitter_depth_ = depth; }
   void set_recv_buf_size(int bytes) { rcvbuf_size_ = bytes; }
 
  private:
-  static constexpr size_t kRingSize     = 1024;
+  // 4096 slots × 9216 bytes ≈ 38 MB. Larger than 1024 because the chain-reader keeps
+  // every packet's slab "in_worker" for an entire frame (~1300 packets at 4K@60 1.7bpp).
+  // Recv runs ahead of the worker, so the working set is roughly one frame + jitter
+  // headroom; 4096 leaves ~3× margin.
+  static constexpr size_t kRingSize     = 4096;
   static constexpr size_t kSlotBytes    = 9216;
   static constexpr size_t kJobQueueSize = kRingSize;
 

@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <cstring>
 #include <vector>
 
 #define MAX_NUM_COMPONENTS 3
@@ -15,57 +16,111 @@ uint32_t get_bytes_allocated(void);
 #define LOCAL_MAX(a, b) ((a) > (b)) ? (a) : (b)
 #define LOCAL_MIN(a, b) ((a) < (b)) ? (a) : (b)
 
+// Chain-reader codestream. Bytes flow through an ordered list of (base, len) chunks
+// appended by frame_handler as RTP packets arrive — no copy into a contiguous buffer.
+// Reads automatically transition across chunks. For codeblock body access where the
+// FPGA driver needs a contiguous pointer, take_contiguous() returns either a direct
+// pointer (when the body fits in one chunk) or a stackAlloc'd staging copy.
+void *stackAlloc(size_t n, int reset);
+
 class codestream {
  private:
-  const uint8_t *origin;
-  const unsigned char *src;
-  uint8_t tmp;
-  uint8_t last;
-  uint8_t bits;
+  struct Chunk {
+    const uint8_t *base;
+    size_t len;
+  };
+  std::vector<Chunk> chunks_;
+  size_t cur_chunk_                = 0;
+  size_t cur_offset_               = 0;
+  size_t consumed_before_cur_chunk_ = 0;
+  uint8_t tmp  = 0;
+  uint8_t last = 0;
+  uint8_t bits = 0;
 #ifdef PARSER_OVERSHOOT_INSTR
-  size_t max_offset_read_ = 0;  // highest byte offset (from origin) ever READ during parsing
+  size_t max_offset_read_ = 0;
 #endif
 
+  // Walk cur_chunk_/cur_offset_ forward by n bytes.
+  void advance(size_t n) {
+    cur_offset_ += n;
+    while (cur_chunk_ < chunks_.size() && cur_offset_ >= chunks_[cur_chunk_].len) {
+      cur_offset_ -= chunks_[cur_chunk_].len;
+      consumed_before_cur_chunk_ += chunks_[cur_chunk_].len;
+      cur_chunk_++;
+    }
+  }
+
  public:
-  explicit codestream(uint8_t *buf) : origin(buf), src(buf), tmp(0), last(0), bits(0) {}
+  codestream() = default;
+  // Backward-compat constructor: takes a single buffer pointer (length unspecified).
+  // Caller must call append_chunk to provide the actual length. Kept only so the
+  // existing frame_handler initializer-list `cs(incoming_data)` compiles during the
+  // transition; frame_handler will be updated to use append_chunk explicitly.
+  explicit codestream(uint8_t *) {}
 
 #ifdef PARSER_OVERSHOOT_INSTR
   size_t get_max_offset_read() const { return max_offset_read_; }
-  void reset_max_offset_read() { max_offset_read_ = static_cast<size_t>(src - origin); }
+  void reset_max_offset_read() { max_offset_read_ = consumed_before_cur_chunk_ + cur_offset_; }
   void note_external_read(const uint8_t *addr) {
-    const size_t off = static_cast<size_t>(addr - origin);
-    if (off > max_offset_read_) max_offset_read_ = off;
+    // addr is a pointer into one of the chunks; find which one and compute absolute offset.
+    for (size_t i = 0; i < chunks_.size(); ++i) {
+      const uint8_t *base = chunks_[i].base;
+      if (addr >= base && addr < base + chunks_[i].len) {
+        size_t off = 0;
+        for (size_t j = 0; j < i; ++j) off += chunks_[j].len;
+        off += static_cast<size_t>(addr - base);
+        if (off > max_offset_read_) max_offset_read_ = off;
+        return;
+      }
+    }
+    // Pointer doesn't belong to any chunk — likely a staging buffer; ignore.
   }
 #else
   void note_external_read(const uint8_t *) {}
 #endif
 
+  // Chain management.
+  void append_chunk(const uint8_t *base, size_t len) { chunks_.push_back({base, len}); }
+  void clear() {
+    chunks_.clear();
+    cur_chunk_                 = 0;
+    cur_offset_                = 0;
+    consumed_before_cur_chunk_ = 0;
+    tmp                        = 0;
+    last                       = 0;
+    bits                       = 0;
+#ifdef PARSER_OVERSHOOT_INSTR
+    max_offset_read_ = 0;
+#endif
+  }
+
   uint8_t get_byte();
-
   uint16_t get_word();
-
   uint32_t get_dword();
-
   uint32_t get_bit();
-
   int packetheader_get_bits(int n);
-
   void packetheader_flush_bits();
-
   void move_forward(uint32_t n);
-
   const uint8_t *get_address() const;
-
   uint32_t get_pos() const;
-
   void reset(uint32_t p);
+  // Returns a pointer to len contiguous bytes starting at current position; advances by
+  // len. If the bytes fit within the current chunk, the returned pointer is a direct
+  // chunk pointer. Otherwise, copies the bytes into a stackAlloc'd staging buffer.
+  // Used by codeblock body access where downstream consumers need contiguity.
+  const uint8_t *take_contiguous(size_t len);
 };
 
 inline uint8_t codestream::get_byte() {
-  const uint8_t byte = *src++;
+  const uint8_t byte = chunks_[cur_chunk_].base[cur_offset_++];
+  if (cur_offset_ == chunks_[cur_chunk_].len) {
+    consumed_before_cur_chunk_ += chunks_[cur_chunk_].len;
+    cur_chunk_++;
+    cur_offset_ = 0;
+  }
 #ifdef PARSER_OVERSHOOT_INSTR
-  const size_t off = static_cast<size_t>(src - origin) - 1;
-  if (off > max_offset_read_) max_offset_read_ = off;
+  const size_t off = consumed_before_cur_chunk_ + cur_offset_;
+  if (off > 0 && off - 1 > max_offset_read_) max_offset_read_ = off - 1;
 #endif
   return byte;
 }
@@ -96,7 +151,6 @@ inline uint32_t codestream::get_bit() {
 
 inline int codestream::packetheader_get_bits(int n) {
   int res = 0;
-
   while (--n >= 0) {
     res <<= 1;
     if (bits == 0) {
@@ -111,27 +165,61 @@ inline int codestream::packetheader_get_bits(int n) {
 }
 
 inline void codestream::packetheader_flush_bits() {
-  if (tmp == 0xFFu) {
-    src++;
-  }
+  if (tmp == 0xFFu) advance(1);
   tmp  = 0;
   bits = 0;
 }
 
 inline void codestream::move_forward(uint32_t n) {
   assert(bits == 0);
-  src += n;
+  advance(n);
 }
 
-inline const uint8_t *codestream::get_address() const { return src; }
+inline const uint8_t *codestream::get_address() const {
+  return chunks_[cur_chunk_].base + cur_offset_;
+}
 
-inline uint32_t codestream::get_pos() const { return static_cast<uint32_t>(src - origin); }
+inline uint32_t codestream::get_pos() const {
+  return static_cast<uint32_t>(consumed_before_cur_chunk_ + cur_offset_);
+}
 
 inline void codestream::reset(uint32_t p) {
   last = 0;
   bits = 0;
   tmp  = 0;
-  src  = origin + p;
+  // Walk chunks to find the one containing absolute position p.
+  cur_chunk_                 = 0;
+  cur_offset_                = 0;
+  consumed_before_cur_chunk_ = 0;
+  size_t remaining = p;
+  while (cur_chunk_ < chunks_.size() && remaining >= chunks_[cur_chunk_].len) {
+    remaining -= chunks_[cur_chunk_].len;
+    consumed_before_cur_chunk_ += chunks_[cur_chunk_].len;
+    cur_chunk_++;
+  }
+  cur_offset_ = remaining;
+}
+
+inline const uint8_t *codestream::take_contiguous(size_t len) {
+  if (len == 0) return chunks_[cur_chunk_].base + cur_offset_;
+  // Fast path: fits in current chunk.
+  if (cur_offset_ + len <= chunks_[cur_chunk_].len) {
+    const uint8_t *result = chunks_[cur_chunk_].base + cur_offset_;
+    advance(len);
+    return result;
+  }
+  // Slow path: spans chunks; copy into a per-frame staging buffer.
+  uint8_t *staging = static_cast<uint8_t *>(stackAlloc(len, 0));
+  if (!staging) return nullptr;
+  size_t copied = 0;
+  while (copied < len && cur_chunk_ < chunks_.size()) {
+    size_t avail   = chunks_[cur_chunk_].len - cur_offset_;
+    size_t to_copy = (len - copied < avail) ? len - copied : avail;
+    std::memcpy(staging + copied, chunks_[cur_chunk_].base + cur_offset_, to_copy);
+    copied += to_copy;
+    advance(to_copy);
+  }
+  return staging;
 }
 
 // typedef struct {

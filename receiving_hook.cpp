@@ -40,6 +40,9 @@ int main(int argc, char *argv[]) {
     RECEIVER_WAIT_TIME_MS = static_cast<size_t>(std::stoi(argv[4]));
   }
 
+  // Receiver lives longer than frame_handler so frame_handler can call back into the
+  // receiver during destruction or final EOC (C++ destroys locals in reverse order).
+  rtp::Receiver receiver;
   j2k::frame_handler frame_handler;
   if (argc > 5) {
     const uint32_t HOLDBACK = static_cast<uint32_t>(std::stoul(argv[5]));
@@ -47,7 +50,11 @@ int main(int argc, char *argv[]) {
   }
   std::cout << "Parse hold-back: " << frame_handler.get_parse_holdback() << " precincts" << std::endl;
 
-  rtp::Receiver receiver;
+  // Wire slab-release: frame_handler holds slabs across each frame (zero-copy chain
+  // parsing) and releases them via this callback at EOC.
+  frame_handler.set_release_slab_callback(
+      [](void *r, size_t idx) { static_cast<rtp::Receiver *>(r)->release_slab(idx); }, &receiver);
+
   params_t params{};
   params.frame_handler = &frame_handler;
   params.receiver      = &receiver;
@@ -71,7 +78,7 @@ int main(int argc, char *argv[]) {
 static void rtp_receive_hook(void *arg, const rtp::Frame &frame) {
   const auto p           = static_cast<struct params_t *>(arg);
   j2k::frame_handler *fh = p->frame_handler;
-  fh->pull_data(frame.payload, frame.payload_len - 8, frame.marker);
+  fh->pull_data(frame.payload, frame.payload_len - 8, frame.marker, frame.slab_idx);
 
   size_t last_processed_frames = fh->get_total_frames();
   if (p->last_timetamp == 0) {

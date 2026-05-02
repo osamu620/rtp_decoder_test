@@ -270,6 +270,9 @@ void Receiver::worker_loop() {
 
 void Receiver::process_job(const Job& j) {
   // hdr_len was parsed once in handle_dgram and carried through Slot+Job; no re-parse.
+  // in_worker is NOT cleared here — the hook (frame_handler) owns the slab via
+  // Frame::slab_idx and must call release_slab() when done. This is what enables the
+  // chain reader to hold slabs across an entire frame's worth of packets without copy.
   const uint8_t* data = slab_.data() + j.slab_idx * kSlotBytes;
   if (j.hdr_len <= j.len && hook_) {
     const uint8_t b1 = data[1];
@@ -281,9 +284,12 @@ void Receiver::process_job(const Job& j) {
     f.payload_type = b1 & 0x7F;
     f.payload      = const_cast<uint8_t*>(data + j.hdr_len);
     f.payload_len  = j.len - j.hdr_len;
+    f.slab_idx     = j.slab_idx;
     hook_(hook_arg_, f);
+  } else {
+    // Hook not invoked — release the slab immediately so recv can recycle it.
+    ring_[j.slab_idx].in_worker.store(0, std::memory_order_release);
   }
-  ring_[j.slab_idx].in_worker.store(0, std::memory_order_release);
 }
 
 }  // namespace rtp

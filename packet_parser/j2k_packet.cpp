@@ -543,13 +543,15 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
     pband_ *pband           = &prec->pband[b];
     for (uint32_t cblkno = 0; cblkno < nb_code_blocks; cblkno++) {
       blk_ *cblk = pband->blk + cblkno;
-      cblk->data = (uint8_t *)s->get_address();
+      // take_contiguous returns either a direct pointer into a slab chunk (fast, common
+      // case where the codeblock fits in one chunk) or a pointer into a stackAlloc'd
+      // staging buffer (slow path, when the body spans slab boundaries). Either way
+      // cblk->data is contiguous for the FPGA driver. take_contiguous also advances
+      // src by cblk->length, so the explicit move_forward below is redundant.
+      cblk->data = const_cast<uint8_t *>(s->take_contiguous(cblk->length));
       if (cblk->length) {
         cblk->Scup =
             ((cblk->data[cblk->pass_lengths[0] - 1] << 4) + (cblk->data[cblk->pass_lengths[0] - 2] & 0x0F));
-        // The two reads above bypass the codestream reader's pointer; record them so
-        // PARSER_OVERSHOOT_INSTR builds can attribute overshoot to the Scup extraction.
-        s->note_external_read(cblk->data + cblk->pass_lengths[0] - 1);
       }
       [[maybe_unused]] uint8_t bnum;
       if (prec->res_num == 0) {
@@ -560,7 +562,6 @@ static int parse_packet_header(codestream *s, prec_ *prec, const coc_marker *coc
       if (get_log_file_fp() != nullptr) {
         fprintf(log_file, "%d,%d,%d\n", prec->res_num, bnum, cblk->length);
       }
-      s->move_forward(cblk->length);
     }
   }
   return EXIT_SUCCESS;

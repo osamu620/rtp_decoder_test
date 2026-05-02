@@ -289,14 +289,16 @@ class tile_hanlder {
     return EXIT_SUCCESS;
   }
 
-  void restart(uint32_t start_SOD) {
+  void restart(uint32_t /*start_SOD*/) {
     // New frame: clear the signal queue. The frame's first body packet will append
     // start_SOD as its first signal (PID=0, POS=0 ⇒ byte_offset = size_MH = start_SOD).
+    // The codestream chain is reset by the caller (frame_handler::release_held_slabs);
+    // we do NOT call tile->buf->reset here — the chain is empty at this point and
+    // setting cur_offset_ without chunks would leave it in an inconsistent state.
     signal_queue_.clear();
     for (uint32_t t = 0; t < num_tiles_x * num_tiles_y; ++t) {
       tile_ *tile   = &tiles[t];
       tile->crp_idx = 0;
-      tile->buf->reset(start_SOD);
       for (uint32_t c = tile->num_components; c > 0; --c) {
         tcomp_ *tcp = &(tile->tcomp[c - 1]);
         for (uint32_t r = MAX_DWT_LEVEL + 1; r > 0; --r) {

@@ -6,7 +6,7 @@
 #define FRAME_HANDLER_HPP
 #include <cstring>
 #include <chrono>
-#include <memory>
+#include <vector>
 #include <packet_parser/tile_handler.hpp>
 #include <packet_parser/j2k_header.hpp>
 #include <packet_parser/utils.hpp>
@@ -27,30 +27,49 @@
   cumlative_time += static_cast<double>(count)
 
 namespace j2k {
+
+// Per-packet hook into the receiver: called by the user's RTP hook to pass each
+// arriving body packet's J2K bytes (chunk) to the parser. The slab the bytes live in
+// is held until release_slab_cb_ is invoked at the next frame boundary.
 class frame_handler {
+ public:
+  // Called by the receiver's hook to release a slab back when frame_handler is done
+  // with all chunks of a frame. Wired up via set_release_slab_callback so frame_handler
+  // doesn't need to know about rtp::Receiver directly.
+  using ReleaseSlabCb = void (*)(void *user, size_t slab_idx);
+
  private:
-  // Heap-allocated to keep frame_handler off the stack — at 4 MB, an inline member
-  // would put 4 MB on whatever stack constructs the frame_handler (main thread by
-  // default 8 MB on Linux, but not portable to smaller-stack environments).
-  std::unique_ptr<uint8_t[]> incoming_data_storage_;
-  uint8_t *incoming_data;      // = incoming_data_storage_.get()
-  size_t incoming_data_len;    // length of `incoming_data`
-  size_t total_frames;         // total number of frames processed
-  size_t trunc_frames;         // total number of truncated frames
-  size_t lost_frames;          // total number of lost RTP frames (not J2K frames)
-  uint32_t start_SOD;          // position of where SOD marker locates
-  int32_t is_parsing_failure;  //
+  // Held slab indices for the in-flight frame. Drained at EOC via release_slab_cb_.
+  std::vector<size_t> held_slabs_;
+  // Running total of bytes appended to cs's chain — equal to "current end of chain
+  // before the next append." Used to compute resync byte offsets and start_SOD.
+  size_t chain_total_bytes_;
+  size_t total_frames;
+  size_t trunc_frames;
+  size_t lost_frames;
+  uint32_t start_SOD;
+  int32_t is_parsing_failure;
   int32_t is_passed_header;
-  std::chrono::time_point<std::chrono::high_resolution_clock> start_time;  // for FPS calculation
+  std::chrono::time_point<std::chrono::high_resolution_clock> start_time;
   double cumlative_time;
   tile_hanlder tile_hndr;
   codestream cs;
 
+  ReleaseSlabCb release_slab_cb_;
+  void *release_slab_arg_;
+
+  void release_held_slabs() {
+    if (release_slab_cb_) {
+      for (size_t idx : held_slabs_) release_slab_cb_(release_slab_arg_, idx);
+    }
+    held_slabs_.clear();
+    chain_total_bytes_ = 0;
+    cs.clear();
+  }
+
  public:
   frame_handler()
-      : incoming_data_storage_(new uint8_t[4 * 1024 * 1024]),
-        incoming_data(incoming_data_storage_.get()),
-        incoming_data_len(0),
+      : chain_total_bytes_(0),
         total_frames(0),
         trunc_frames(0),
         lost_frames(0),
@@ -58,8 +77,16 @@ class frame_handler {
         is_parsing_failure(0),
         is_passed_header(0),
         cumlative_time(0.0),
-        cs(incoming_data) {
+        cs(),
+        release_slab_cb_(nullptr),
+        release_slab_arg_(nullptr) {
     start_time = std::chrono::high_resolution_clock::now();
+    held_slabs_.reserve(2048);
+  }
+
+  ~frame_handler() {
+    // Don't release slabs from destructor — receiver may already be gone.
+    held_slabs_.clear();
   }
 
   size_t get_total_frames() const { return total_frames; }
@@ -70,6 +97,11 @@ class frame_handler {
 
   void set_parse_holdback(uint32_t n) { tile_hndr.set_parse_holdback(n); }
   uint32_t get_parse_holdback() const { return tile_hndr.get_parse_holdback(); }
+
+  void set_release_slab_callback(ReleaseSlabCb cb, void *arg) {
+    release_slab_cb_  = cb;
+    release_slab_arg_ = arg;
+  }
 
 #ifdef PARSER_OVERSHOOT_INSTR
   tile_hanlder::OvershootStats get_overshoot_stats() const { return tile_hndr.get_overshoot_stats(); }
@@ -93,48 +125,24 @@ class frame_handler {
   inline size_t get_lost_frames() const { return this->lost_frames; }
   inline size_t get_trunc_frames() const { return this->trunc_frames; }
 
-  ~frame_handler() {
-    // #ifdef STACK_ALLOC
-    //     restart_tiles(tiles, &siz);
-    // #else
-    //     destroy_tiles(tiles, &siz);
-    // #endif
-    incoming_data_len = 0;
-  }
-
-  //
-  //   /** @brief restart processing for a next J2K frame
-  //    *  @details This function shall be called after finishing packet parsing for a J2K frame
-  //    */
-  //   void restart() {
-  // #ifdef STACK_ALLOC
-  //     restart_tiles(tiles, &siz);
-  // #else
-  //     destroy_tiles(tiles, &siz);
-  //     tiles = nullptr;
-  // #endif
-  //     incoming_data_len = 0;
-  //     cs.pos            = 0;
-  //     cs.bits           = 0;
-  //     cs.last           = 0;
-  //     cs.tmp            = 0;
-  //   }
-
-  void pull_data(uint8_t *__restrict__ payload, size_t size, int marker) {
+  void pull_data(uint8_t *__restrict__ payload, size_t size, int marker, size_t slab_idx) {
     const uint32_t MH      = payload[0] >> 6;
-    const uint32_t ORDB    = (payload[1] >> 7) & 1u;  // RFC 9828 body header: resync-present bit
+    const uint32_t ORDB    = (payload[1] >> 7) & 1u;  // RFC 9828 body header: resync-present
     const uint32_t POS_PID = __builtin_bswap32(*(uint32_t *)(payload + 4));
     const uint32_t PID     = POS_PID & 0x000FFFFF;    // valid only when ORDB=1
     uint8_t *__restrict__ j2k_payload = payload + 8;
-    // The previous form cast incoming_data to uint32_t* and divided the offset by 4,
-    // which silently rounds the destination address down to a 4-byte boundary and
-    // clobbers up to 3 bytes of prior data when incoming_data_len isn't a multiple of 4.
-    std::memcpy(this->incoming_data + incoming_data_len, j2k_payload, size);
-    if (MH >= 1) {  // MH >=1 means this RTP packet is Main packet.
+
+    if (MH >= 1) {  // Main packet — start of a new frame's main header bytes.
       log_init(total_frames);
-      incoming_data_len = 0;
+      // The previous frame's chunks were released at EOC, so chain is empty here for
+      // the first Main packet of a frame. For partial main (MH=1, more main header to
+      // come), subsequent MH packets keep accumulating.
+      cs.append_chunk(j2k_payload, size);
+      held_slabs_.push_back(slab_idx);
+      chain_total_bytes_ += size;
+
       if (!tile_hndr.is_ready()) {
-        if (MH >= 2) {  // MH >= 2 means all the Main packet has been received.
+        if (MH >= 2) {  // complete main header in this packet
           start_SOD = parse_main_header(&cs, tile_hndr.get_siz(), tile_hndr.get_cod(), tile_hndr.get_cocs(),
                                         tile_hndr.get_qcd(), tile_hndr.get_dfs());
           tile_hndr.create(&cs);
@@ -146,40 +154,45 @@ class frame_handler {
           return;  // something wrong
         }
       } else {
-        // // skip main header parsing (re-use)
-        // tile_hndr.restart(start_SOD);
+        // Subsequent frames: position the codestream reader at start_SOD within the
+        // just-appended MH chunk. parse_main_header would have done this for the first
+        // frame; for re-used main headers, we do it explicitly.
+        cs.reset(start_SOD);
         is_passed_header = 1;
       }
-    }
-
-    const size_t len_before = incoming_data_len;
-    incoming_data_len += size;
-    if (ORDB && MH == 0 && is_passed_header) {
-      // Append the resync byte offset to the parser's signal queue. Even on a failed
-      // frame we record it (cheap; restart() clears at frame end).
+    } else {
+      // Body packet: append its J2K bytes to the chain.
+      cs.append_chunk(j2k_payload, size);
+      held_slabs_.push_back(slab_idx);
+      // Note resync byte before bumping the running total.
       const uint32_t POS         = POS_PID >> 20;
-      const uint32_t resync_byte = static_cast<uint32_t>(len_before) + POS;
-      tile_hndr.append_signal(resync_byte);
-      if (!is_parsing_failure) {
-        ACTION(parse, PID);
+      const uint32_t resync_byte = static_cast<uint32_t>(chain_total_bytes_) + POS;
+      chain_total_bytes_ += size;
+      if (ORDB && is_passed_header) {
+        tile_hndr.append_signal(resync_byte);
+        if (!is_parsing_failure) {
+          ACTION(parse, PID);
+        }
       }
     }
 
-    if (marker) {  // when EOC comes
+    if (marker) {  // EOC of this frame
       if (!is_parsing_failure && is_passed_header) {
         ACTION(flush);
       }
       trunc_frames += is_parsing_failure;
       total_frames++;
 
-      save_j2c(total_frames, this->incoming_data, incoming_data_len);
       log_close();
       is_parsing_failure = 0;
       is_passed_header   = 0;
 
-      // skip main header parsing (re-use)
+      // Release held slabs back to the receiver and clear the chain.
+      release_held_slabs();
+
+      // Reset per-frame parser state (tag-trees, crp_idx, signal_queue). cs is already
+      // cleared by release_held_slabs; tile_hndr.restart no longer touches cs.
       tile_hndr.restart(start_SOD);
-      // printf("%d bytes allocated\n", get_bytes_allocated());
     }
   }
 };
