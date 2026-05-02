@@ -16,8 +16,17 @@ struct params_t {
 static void rtp_receive_hook(void *arg, const rtp::Frame &frame);
 
 void print_help(char *cmd) {
-  std::cout << "Usage:" << cmd << " address port [duration(s)] [wait(ms)] [holdback]" << std::endl;
-  std::cout << "  holdback: precincts to leave unparsed behind latest PID (default 16)" << std::endl;
+  std::cout
+      << "Usage: " << cmd
+      << " address port [duration(s)] [wait(ms)] [holdback] [recv_cpu] [worker_cpu] [recv_buf_mb]"
+      << std::endl;
+  std::cout << "  duration:    seconds to listen (default: forever)" << std::endl;
+  std::cout << "  wait(ms):    deprecated, ignored (kept for arg-position compatibility)" << std::endl;
+  std::cout << "  holdback:    parser hold-back precincts (default 0; vestigial since byte-queue gate)"
+            << std::endl;
+  std::cout << "  recv_cpu:    CPU to pin recv thread (default 2; -1 = no pinning)" << std::endl;
+  std::cout << "  worker_cpu:  CPU to pin worker thread (default 3; -1 = no pinning)" << std::endl;
+  std::cout << "  recv_buf_mb: SO_RCVBUF in megabytes (default 16)" << std::endl;
 }
 
 int main(int argc, char *argv[]) {
@@ -40,21 +49,29 @@ int main(int argc, char *argv[]) {
     RECEIVER_WAIT_TIME_MS = static_cast<size_t>(std::stoi(argv[4]));
   }
 
+  int recv_cpu    = 2;
+  int worker_cpu  = 3;
+  int recv_buf_mb = 16;
+  if (argc > 6) recv_cpu = std::stoi(argv[6]);
+  if (argc > 7) worker_cpu = std::stoi(argv[7]);
+  if (argc > 8) recv_buf_mb = std::stoi(argv[8]);
+
   // Receiver lives longer than frame_handler so frame_handler can call back into the
   // receiver during destruction or final EOC (C++ destroys locals in reverse order).
   rtp::Receiver receiver;
-  // Pin recv and worker to distinct cores so they don't preempt each other under load.
-  // On the Cortex-A53 ZCU102 (4 cores) we use cores 2 and 3 because cores 0/1 typically
-  // handle network IRQs and other kernel work — pinning user threads there causes
-  // contention and worsens recv drops. Cores 2/3 are usually idle.
-  receiver.set_recv_cpu(2);
-  receiver.set_worker_cpu(3);
+  receiver.set_recv_cpu(recv_cpu);
+  receiver.set_worker_cpu(worker_cpu);
+  receiver.set_recv_buf_size(recv_buf_mb * 1024 * 1024);
+
   j2k::frame_handler frame_handler;
   if (argc > 5) {
     const uint32_t HOLDBACK = static_cast<uint32_t>(std::stoul(argv[5]));
     frame_handler.set_parse_holdback(HOLDBACK);
   }
   std::cout << "Parse hold-back: " << frame_handler.get_parse_holdback() << " precincts" << std::endl;
+  std::cout << "Recv pin: " << (recv_cpu < 0 ? "off" : ("CPU " + std::to_string(recv_cpu)))
+            << ", Worker pin: " << (worker_cpu < 0 ? "off" : ("CPU " + std::to_string(worker_cpu)))
+            << ", SO_RCVBUF: " << recv_buf_mb << " MB" << std::endl;
 
   // Wire slab-release: frame_handler holds slabs across each frame (zero-copy chain
   // parsing) and releases them via this callback at EOC.
