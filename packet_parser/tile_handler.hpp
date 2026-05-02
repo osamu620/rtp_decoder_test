@@ -107,7 +107,14 @@ class tile_hanlder {
   // the absolute position in incoming_data of the resync point (start of some precinct's
   // packet header). Entries arrive in byte order (RTP packet seq order); the queue is a
   // straight FIFO. PID is intentionally not stored — see signal_queue_ comment.
-  void append_signal(uint32_t byte_offset) { signal_queue_.push_back(byte_offset); }
+  // The queue is normally drained per-frame via consume_passed_signals + clear in
+  // restart(). The hard cap below guards against runaway growth if EOC packets are
+  // persistently lost (16384 is ~2.5x one 4K@60 frame's precinct count, plenty of
+  // headroom for legitimate bursts).
+  void append_signal(uint32_t byte_offset) {
+    if (signal_queue_.size() >= 16384) signal_queue_.clear();
+    signal_queue_.push_back(byte_offset);
+  }
   siz_marker *get_siz() { return &siz; }
   cod_marker *get_cod() { return &cod; }
   coc_marker *get_cocs() { return cocs; }
