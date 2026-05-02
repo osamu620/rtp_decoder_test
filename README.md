@@ -42,20 +42,28 @@ For a clean reconfigure use `cmake --fresh`.
 Typical ZCU102 invocation for 4K@60 800 Mbps:
 
 ```sh
-./build/rtp_decoder 133.36.41.17 6000 1200 45 0 2 3 64
+./build/rtp_decoder <addr> 6000 1200 45 0 2 3 0
 ```
+
+`recv_buf_mb=0` skips the `setsockopt(SO_RCVBUF)` call entirely, leaving Linux's default (~200 KB). With the IRQ properly placed (see below) the recv thread keeps up easily and the kernel buffer barely fills, so a large `SO_RCVBUF` is unnecessary. Earlier tests used `64` MB to mask IRQ-induced bursts; once the IRQ is on CPU 1, that headroom is no longer needed.
 
 ## Deployment on ZCU102 — required before high-bitrate runs
 
 By default Petalinux pins the eth0 IRQ to CPU 0, which is also where general system work runs. Under 800 Mbps bursts the softirq draining the NIC RX ring runs late and the ring overflows. The drops are invisible at the UDP socket layer (`/proc/net/udp` shows `drops=0`) but show up as `net=N` in this app's counters.
 
-**Move the eth0 IRQ to CPU 1 before running**:
+**Move the eth0 IRQ to CPU 1 before running** — use the included helper:
 
 ```sh
-# Find the IRQ number for eth0:
-cat /proc/interrupts | grep eth
-# Pin it to CPU 1 (bit 1 = CPU 1):
-sudo sh -c 'echo 2 > /proc/irq/<IRQ_NUM>/smp_affinity'
+sudo ./scripts/pin-nic-irq.sh           # default: eth0 → CPU 1
+sudo ./scripts/pin-nic-irq.sh eth0 1    # explicit
+```
+
+Or do it by hand:
+
+```sh
+cat /proc/interrupts | grep eth                                 # find IRQ number
+sudo sh -c 'echo 2 > /proc/irq/<IRQ_NUM>/smp_affinity'           # bit 1 = CPU 1
+cat /proc/irq/<IRQ_NUM>/smp_affinity                             # confirm
 ```
 
 CPU layout on the board: **IRQ on 1, recv on 2, worker on 3**. CPU 0 stays for the system. Don't pin recv/worker to 0 or 1 — both have IRQ contention.
@@ -75,8 +83,9 @@ With the IRQ on CPU 1 and the default CLI args above:
 | Slot-busy drops | 0 |
 | Job-queue-full drops | 0 |
 | Per-frame parse time | ~6.4 ms (~38% of 16.67 ms budget) |
+| `SO_RCVBUF` | kernel default (~200 KB) |
 
-Without the IRQ fix (default CPU 0): ~2% truncation rate, ~40 packets/min lost.
+Without the IRQ fix (default CPU 0): ~2% truncation rate, ~40 packets/min lost — and even 64 MB `SO_RCVBUF` couldn't paper over it.
 
 ## Diagnosing drops
 

@@ -136,9 +136,11 @@ sudo sh -c 'echo 2 > /proc/irq/51/smp_affinity'   # bit 1 = CPU 1
 **CPU layout**: IRQ on 1, recv on 2, worker on 3. CPU 0 stays for system. Don't pin recv/worker to 0/1 — both have IRQ contention (memory: that combination produced 0 frames processed).
 
 **Tunables that matter**:
-- `recv_buf_mb`: 16 was lossy on real 800 Mbps even *with* IRQ pinning during early testing. 64 is comfortable. Going higher rarely helps once IRQ is fixed.
+- `recv_buf_mb`: with IRQ correctly pinned, **0 (use kernel default ~200 KB)** is fine and verified — recv thread keeps up easily. The 64 MB recommendation predates the IRQ fix; higher buffers only matter when softirq is stalling.
 - `holdback`: leave at 0. The byte-queue gate (signal-driven) made it vestigial.
 - `jitter_depth`: 64 default; not currently exposed via CLI.
+
+**Tooling**: `scripts/pin-nic-irq.sh [iface] [cpu]` (defaults `eth0` / `1`) finds the NIC IRQ in `/proc/interrupts` and writes `smp_affinity`. Needs root. Not persistent across reboot.
 
 **Diagnostic chain when drops appear**:
 1. Check `net=` vs `busy=` vs `qfull=` in stats — only `net=` non-zero ⇒ loss before our code.
