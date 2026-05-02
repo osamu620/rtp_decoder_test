@@ -115,9 +115,10 @@ class frame_handler {
     const uint32_t POS_PID = __builtin_bswap32(*(uint32_t *)(payload + 4));
     const uint32_t PID     = POS_PID & 0x000FFFFF;    // valid only when ORDB=1
     uint8_t *__restrict__ j2k_payload = payload + 8;
-    // std::memcpy(this->incoming_data + incoming_data_len, data, size);
-    std::memcpy(reinterpret_cast<uint32_t *>(this->incoming_data) + (incoming_data_len >> 2), j2k_payload,
-                size);
+    // The previous form cast incoming_data to uint32_t* and divided the offset by 4,
+    // which silently rounds the destination address down to a 4-byte boundary and
+    // clobbers up to 3 bytes of prior data when incoming_data_len isn't a multiple of 4.
+    std::memcpy(this->incoming_data + incoming_data_len, j2k_payload, size);
     if (MH >= 1) {  // MH >=1 means this RTP packet is Main packet.
       log_init(total_frames);
       incoming_data_len = 0;
