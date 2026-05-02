@@ -6,6 +6,7 @@
 #define FRAME_HANDLER_HPP
 #include <cstring>
 #include <chrono>
+#include <memory>
 #include <packet_parser/tile_handler.hpp>
 #include <packet_parser/j2k_header.hpp>
 #include <packet_parser/utils.hpp>
@@ -28,8 +29,11 @@
 namespace j2k {
 class frame_handler {
  private:
-  alignas(16) uint8_t incoming_data[4 * 1024 * 1024];
-  // uint8_t *const incoming_data;  // buffer preserves incoming RTP frame data
+  // Heap-allocated to keep frame_handler off the stack — at 4 MB, an inline member
+  // would put 4 MB on whatever stack constructs the frame_handler (main thread by
+  // default 8 MB on Linux, but not portable to smaller-stack environments).
+  std::unique_ptr<uint8_t[]> incoming_data_storage_;
+  uint8_t *incoming_data;      // = incoming_data_storage_.get()
   size_t incoming_data_len;    // length of `incoming_data`
   size_t total_frames;         // total number of frames processed
   size_t trunc_frames;         // total number of truncated frames
@@ -44,7 +48,9 @@ class frame_handler {
 
  public:
   frame_handler()
-      : incoming_data_len(0),
+      : incoming_data_storage_(new uint8_t[4 * 1024 * 1024]),
+        incoming_data(incoming_data_storage_.get()),
+        incoming_data_len(0),
         total_frames(0),
         trunc_frames(0),
         lost_frames(0),
