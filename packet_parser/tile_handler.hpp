@@ -30,6 +30,8 @@ class tile_hanlder {
     size_t max_drift_bytes    = 0;
     size_t sum_drift_bytes    = 0;
     size_t failed_parses      = 0;
+    size_t recoveries         = 0;  // parse failures recovered by snapping to next signal
+    size_t skipped_precincts  = 0;  // precincts skipped due to recovery
     uint32_t last_fail_c      = 0;
     uint32_t last_fail_r      = 0;
     uint32_t last_fail_p      = 0;
@@ -63,15 +65,20 @@ class tile_hanlder {
   // lookahead may be masking overshoot from one of these.
   uint32_t parse_holdback_;  // deprecated: byte-queue gate replaces precinct-count cushion
 
-  // FIFO of byte offsets in incoming_data where signaled (ORDB=1) precinct boundaries
-  // land. Each ORDB=1 RTP packet appends one entry. Entries are guaranteed monotonic in
-  // arrival order (= byte order). parse() uses signal_queue_.back() as the high-water
-  // mark to gate parsing — only parse precincts whose body bytes are surely buffered.
-  // After each parse_one_precinct, snap_to_signals() pops entries the parser passed and
-  // corrects src on drift. PID is intentionally NOT used as an index here: per RFC 9828
-  // PID = c + s*num_components, which is encoder-specific and does not map 1:1 to the
-  // parser's crp_idx (PCRL y,x,c,r) order.
-  std::deque<uint32_t> signal_queue_;
+  // Each entry records both the byte offset (in incoming_data) where a signaled
+  // precinct's packet header starts AND the PID that signal carried. PID is needed for
+  // recovery: when parse_one_precinct fails, we snap to the next signal and use its PID
+  // to compute the corresponding crp_idx (via crp_idx_by_pid_).
+  struct Signal {
+    uint32_t byte_offset;
+    uint32_t pid;
+  };
+  std::deque<Signal> signal_queue_;
+
+  // Per-component lookup: crp_idx_by_pid_[c][s] = crp_idx of the precinct identified
+  // by PID = c + s*num_components. Built once in create() by walking the CRP vector.
+  // Used by try_recover() to map a signaled PID to a position in the parser's CRP order.
+  std::vector<std::vector<uint32_t>> crp_idx_by_pid_;
 
 #ifdef PARSER_OVERSHOOT_INSTR
   OvershootStats ostats_;
@@ -104,16 +111,14 @@ class tile_hanlder {
   uint32_t get_parse_holdback() const { return parse_holdback_; }
 
   // Called by frame_handler each time a body packet with ORDB=1 arrives. byte_offset is
-  // the absolute position in incoming_data of the resync point (start of some precinct's
-  // packet header). Entries arrive in byte order (RTP packet seq order); the queue is a
-  // straight FIFO. PID is intentionally not stored — see signal_queue_ comment.
-  // The queue is normally drained per-frame via consume_passed_signals + clear in
-  // restart(). The hard cap below guards against runaway growth if EOC packets are
-  // persistently lost (16384 is ~2.5x one 4K@60 frame's precinct count, plenty of
-  // headroom for legitimate bursts).
-  void append_signal(uint32_t byte_offset) {
+  // the absolute position in incoming_data of the resync point (start of the precinct
+  // identified by pid's packet header). Entries arrive in byte order. PID is needed by
+  // the recovery path so we can compute the corresponding crp_idx after a parse failure.
+  // The queue is drained per-frame; the hard cap (16384) guards against runaway growth
+  // if EOC is persistently lost.
+  void append_signal(uint32_t byte_offset, uint32_t pid) {
     if (signal_queue_.size() >= 16384) signal_queue_.clear();
-    signal_queue_.push_back(byte_offset);
+    signal_queue_.push_back({byte_offset, pid});
   }
   siz_marker *get_siz() { return &siz; }
   cod_marker *get_cod() { return &cod; }
@@ -160,6 +165,17 @@ class tile_hanlder {
         prepare_precinct_structure(tile, cocs, &dfs);
       }
     }
+    // Build the per-component CRP-index lookup for recovery. crp_idx_by_pid_[c] is the
+    // sequence of crp_idx values whose entries have component c. Indexed by the s field
+    // from a signaled PID = c + s*num_components.
+    if (!tiles.empty()) {
+      crp_idx_by_pid_.assign(MAX_NUM_COMPONENTS, std::vector<uint32_t>{});
+      const auto &crp = tiles[0].crp;
+      for (uint32_t i = 0; i < crp.size(); ++i) {
+        uint8_t c = crp[i].c;
+        if (c < MAX_NUM_COMPONENTS) crp_idx_by_pid_[c].push_back(i);
+      }
+    }
     ready = true;
   }
 
@@ -179,7 +195,7 @@ class tile_hanlder {
     while (true) {
       consume_passed_signals(tile);
       if (signal_queue_.empty()) break;
-      if (static_cast<uint32_t>(tile->buf->get_pos()) >= signal_queue_.back()) break;
+      if (static_cast<uint32_t>(tile->buf->get_pos()) >= signal_queue_.back().byte_offset) break;
 
       const crp_status ct = tile->crp[tile->crp_idx];
 #ifdef PARSER_OVERSHOOT_INSTR
@@ -192,6 +208,12 @@ class tile_hanlder {
 #ifdef PARSER_OVERSHOOT_INSTR
         record_failure(tile->buf, ct, tile->crp_idx - 1);
 #endif
+        // Try to recover by snapping to the next signal. If recovery succeeds, continue
+        // parsing from the new position; otherwise abort the frame as before.
+        if (try_recover(tile)) {
+          ret = EXIT_SUCCESS;
+          continue;
+        }
         break;
       }
 #ifdef PARSER_OVERSHOOT_INSTR
@@ -223,6 +245,15 @@ class tile_hanlder {
 #ifdef PARSER_OVERSHOOT_INSTR
         record_failure(tile->buf, ct, static_cast<uint32_t>(tile->crp_idx));
 #endif
+        // Same recovery path as parse(). Note: in flush, all body bytes are present so
+        // recovery is more likely to succeed if there's any signal we haven't reached yet.
+        if (try_recover(tile)) {
+          ret = EXIT_SUCCESS;
+          // tile->crp_idx was set by try_recover; the for-loop's ++ will overshoot it
+          // by one, so undo here:
+          tile->crp_idx--;
+          continue;
+        }
         break;
       }
 #ifdef PARSER_OVERSHOOT_INSTR
@@ -245,7 +276,7 @@ class tile_hanlder {
   void consume_passed_signals(tile_ *tile) {
     while (!signal_queue_.empty()) {
       const uint32_t parser_pos = static_cast<uint32_t>(tile->buf->get_pos());
-      const uint32_t front      = signal_queue_.front();
+      const uint32_t front      = signal_queue_.front().byte_offset;
       if (parser_pos < front) break;
 #ifdef PARSER_OVERSHOOT_INSTR
       if (parser_pos > front) {
@@ -257,6 +288,46 @@ class tile_hanlder {
 #endif
       signal_queue_.pop_front();
     }
+  }
+
+  // Recover from a parse_one_precinct failure: snap src to the next signaled byte
+  // beyond the current parser position, and reset crp_idx to the precinct that signal
+  // identifies. Returns true on success (parsing can continue from the new position),
+  // false if no usable signal is available (frame must be truncated).
+  //
+  // Mechanism:
+  //   - Walk signal_queue_ forward to find the first entry with byte_offset > current src.
+  //   - Decode (c, s) from that signal's PID:  c = pid % nc, s = pid / nc, where
+  //     nc = num_components from siz.
+  //   - Look up crp_idx_by_pid_[c][s] — the position in the parser's CRP order that
+  //     corresponds to this precinct.
+  //   - cs.reset(byte_offset) (clears tmp/bits, walks to the new chunk position).
+  //   - Pop the consumed signal.
+  //   - The skipped precincts (between old crp_idx and new) get no callback fired —
+  //     downstream consumers see a gap.
+  bool try_recover(tile_ *tile) {
+    const uint32_t cur_pos = static_cast<uint32_t>(tile->buf->get_pos());
+    // Find the next signal strictly past current src.
+    while (!signal_queue_.empty() && signal_queue_.front().byte_offset <= cur_pos) {
+      signal_queue_.pop_front();
+    }
+    if (signal_queue_.empty()) return false;
+    const Signal sig = signal_queue_.front();
+    const uint32_t nc = static_cast<uint32_t>(siz.Csiz);
+    if (nc == 0) return false;
+    const uint32_t c = sig.pid % nc;
+    const uint32_t s = sig.pid / nc;
+    if (c >= crp_idx_by_pid_.size() || s >= crp_idx_by_pid_[c].size()) return false;
+    const uint32_t new_crp_idx = crp_idx_by_pid_[c][s];
+    if (new_crp_idx <= static_cast<uint32_t>(tile->crp_idx)) return false;  // no progress
+#ifdef PARSER_OVERSHOOT_INSTR
+    ostats_.recoveries++;
+    ostats_.skipped_precincts += new_crp_idx - tile->crp_idx;
+#endif
+    tile->buf->reset(sig.byte_offset);
+    tile->crp_idx = static_cast<int>(new_crp_idx);
+    signal_queue_.pop_front();  // we're now AT this signal; consume it
+    return true;
   }
 
 #ifdef PARSER_OVERSHOOT_INSTR

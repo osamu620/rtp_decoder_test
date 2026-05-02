@@ -130,7 +130,9 @@ static void rtp_receive_hook(void *arg, const rtp::Frame &frame) {
     std::cout << "  Parser: precincts=" << os.precincts_parsed
               << " avg_prec_bytes=" << std::fixed << std::setprecision(1) << avg_prec_bytes
               << " drift_snaps=" << os.snaps_with_drift << " max_drift_bytes=" << os.max_drift_bytes
-              << " mean_drift=" << std::fixed << std::setprecision(1) << avg_drift << std::endl;
+              << " mean_drift=" << std::fixed << std::setprecision(1) << avg_drift
+              << " recoveries=" << os.recoveries << " skipped_precincts=" << os.skipped_precincts
+              << std::endl;
     if (os.failed_parses) {
       std::cout << "  Failures: count=" << os.failed_parses << " last={c=" << os.last_fail_c
                 << " r=" << os.last_fail_r << " p=" << os.last_fail_p

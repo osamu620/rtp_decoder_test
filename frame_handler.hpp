@@ -215,7 +215,7 @@ class frame_handler {
       const uint32_t resync_byte = static_cast<uint32_t>(chain_total_bytes_) + POS;
       chain_total_bytes_ += size;
       if (ORDB && is_passed_header) {
-        tile_hndr.append_signal(resync_byte);
+        tile_hndr.append_signal(resync_byte, PID);
         if (!is_parsing_failure) {
           ACTION(parse, PID);
         }
