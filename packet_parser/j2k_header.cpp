@@ -31,11 +31,10 @@ static int parse_SIZ(codestream *buf, siz_marker *siz) {
     return EXIT_FAILURE;
   }
   for (uint16_t c = 0; c < siz->Csiz; c++) {
-    siz->Ssiz[c] = buf->get_byte();
-    if (siz->Ssiz[c] != 11) {
-      printf("Only supports 12 bit/pixel/component\n");
-      // return EXIT_FAILURE;
-    }
+    // Ssiz encodes (bit_depth - 1); recorded for downstream consumers (the FPGA decoder
+    // needs it). The parser itself doesn't depend on bit depth — precinct/codeblock
+    // identification and byte-range bookkeeping are bit-depth-agnostic.
+    siz->Ssiz[c]  = buf->get_byte();
     siz->XRsiz[c] = buf->get_byte();  // XRsiz, 1 or 2
     siz->YRsiz[c] = buf->get_byte();  // YRsiz, 1 or 2
   }
