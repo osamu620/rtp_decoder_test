@@ -148,8 +148,11 @@ class frame_handler {
     if (MH == 0 && (!is_passed_header || is_parsing_failure)) {
       if (release_slab_cb_) release_slab_cb_(release_slab_arg_, slab_idx);
       if (marker) {
-        // EOC of a frame we weren't tracking; account for it and reset state.
-        if (is_passed_header) {
+        // EOC of a failed/abandoned frame. Count it as truncated if we were tracking
+        // anything (is_parsing_failure indicates a parse error mid-frame; is_passed_header
+        // would still be 1 for the rare case where the EOC body packet itself failed
+        // before this branch). Either way, increment trunc + total to keep counts honest.
+        if (is_parsing_failure || is_passed_header) {
           trunc_frames++;
           total_frames++;
         }
