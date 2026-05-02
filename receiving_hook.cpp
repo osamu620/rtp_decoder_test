@@ -43,11 +43,11 @@ int main(int argc, char *argv[]) {
   // Receiver lives longer than frame_handler so frame_handler can call back into the
   // receiver during destruction or final EOC (C++ destroys locals in reverse order).
   rtp::Receiver receiver;
-  // Pin recv and worker to distinct cores so they don't preempt each other under load.
-  // On the Cortex-A53 ZCU102 (4 cores) at 800 Mbps this prevents kernel-side packet
-  // drops caused by the recv thread being descheduled while the worker is busy.
-  receiver.set_recv_cpu(0);
-  receiver.set_worker_cpu(1);
+  // Thread CPU pinning is opt-in. Uncomment to pin recv and worker to distinct cores
+  // (helps at very high bitrates on multi-core SoCs). On smaller streams or if pinning
+  // misbehaves on the target, leave commented out.
+  // receiver.set_recv_cpu(0);
+  // receiver.set_worker_cpu(1);
   j2k::frame_handler frame_handler;
   if (argc > 5) {
     const uint32_t HOLDBACK = static_cast<uint32_t>(std::stoul(argv[5]));

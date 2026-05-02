@@ -112,6 +112,11 @@ class codestream {
 };
 
 inline uint8_t codestream::get_byte() {
+  // Bounds check: parser drift (e.g., a wrong cblk->length) can drive cur_chunk_ past
+  // chunks_.size(). Returning 0 lets the parser fail a validation check cleanly
+  // instead of segfaulting; the frame will be marked truncated and recovery proceeds
+  // at EOC or the next held_slabs cap fire.
+  if (cur_chunk_ >= chunks_.size()) return 0;
   const uint8_t byte = chunks_[cur_chunk_].base[cur_offset_++];
   if (cur_offset_ == chunks_[cur_chunk_].len) {
     consumed_before_cur_chunk_ += chunks_[cur_chunk_].len;
@@ -176,6 +181,10 @@ inline void codestream::move_forward(uint32_t n) {
 }
 
 inline const uint8_t *codestream::get_address() const {
+  // Bounds-safe: returns nullptr if cur_chunk_ has walked past the end. Callers that
+  // dereference must check (none currently do unconditionally — take_contiguous is
+  // used for codeblock body access, which has its own safety).
+  if (cur_chunk_ >= chunks_.size()) return nullptr;
   return chunks_[cur_chunk_].base + cur_offset_;
 }
 
@@ -187,7 +196,9 @@ inline void codestream::reset(uint32_t p) {
   last = 0;
   bits = 0;
   tmp  = 0;
-  // Walk chunks to find the one containing absolute position p.
+  // Walk chunks to find the one containing absolute position p. If p is past the end
+  // of the chain, leave cur_chunk_ at chunks_.size() (out of range); subsequent reads
+  // will return 0 via the bounds check in get_byte.
   cur_chunk_                 = 0;
   cur_offset_                = 0;
   consumed_before_cur_chunk_ = 0;
@@ -201,6 +212,10 @@ inline void codestream::reset(uint32_t p) {
 }
 
 inline const uint8_t *codestream::take_contiguous(size_t len) {
+  // Bounds-safe variant: if cur_chunk_ has walked past the end (parser drift) or len
+  // exceeds remaining bytes, return nullptr. Callers (codeblock body access) check for
+  // a non-null pointer before dereferencing.
+  if (cur_chunk_ >= chunks_.size()) return nullptr;
   if (len == 0) return chunks_[cur_chunk_].base + cur_offset_;
   // Fast path: fits in current chunk.
   if (cur_offset_ + len <= chunks_[cur_chunk_].len) {
