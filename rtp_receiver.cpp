@@ -157,7 +157,7 @@ void Receiver::handle_dgram(uint8_t* data, size_t len) {
     size_t i   = next_seq_ & (kRingSize - 1);
     Slot& head = ring_[i];
     if (head.filled && head.seq == next_seq_) {
-      dispatch(i, head.len, head.seq);
+      dispatch(i, head.len, head.seq, head.hdr_len);
       head.filled = false;
       head.len    = 0;
       --pending_;
@@ -183,9 +183,10 @@ void Receiver::handle_dgram(uint8_t* data, size_t len) {
     return;
   }
   std::memcpy(slab_.data() + idx * kSlotBytes, data, effective_len);
-  slot.seq    = seq;
-  slot.len    = effective_len;
-  slot.filled = true;
+  slot.seq     = seq;
+  slot.hdr_len = static_cast<uint16_t>(hdr);
+  slot.len     = effective_len;
+  slot.filled  = true;
   ++pending_;
 
   release_in_order();
@@ -196,7 +197,7 @@ void Receiver::release_in_order() {
     size_t i = next_seq_ & (kRingSize - 1);
     Slot& s  = ring_[i];
     if (!s.filled || s.seq != next_seq_) break;
-    dispatch(i, s.len, s.seq);
+    dispatch(i, s.len, s.seq, s.hdr_len);
     s.filled = false;
     s.len    = 0;
     --pending_;
@@ -204,17 +205,25 @@ void Receiver::release_in_order() {
   }
 }
 
-void Receiver::dispatch(size_t slab_idx, size_t len, uint16_t seq) {
+void Receiver::dispatch(size_t slab_idx, size_t len, uint16_t seq, uint16_t hdr_len) {
   // Hand off slab ownership to the worker, then enqueue the job.
   ring_[slab_idx].in_worker.store(1, std::memory_order_release);
 
-  if (!enqueue_job(Job{slab_idx, len, seq})) {
+  // Notify only on empty→non-empty transition. Saves one futex wakeup per packet at
+  // steady state (worker is normally not in wait_for). The worker_loop's 1 ms wait_for
+  // timeout is the safety net if a notify is missed due to a race with worker entering
+  // wait between its empty-check and the actual sleep.
+  const size_t head_before = job_head_.load(std::memory_order_acquire);
+  const size_t tail_before = job_tail_.load(std::memory_order_relaxed);
+  const bool was_empty     = (head_before == tail_before);
+
+  if (!enqueue_job(Job{slab_idx, len, seq, hdr_len})) {
     // Worker is far behind. Drop this packet, return slab ownership to recv.
     ring_[slab_idx].in_worker.store(0, std::memory_order_release);
     queue_full_drops_.fetch_add(1, std::memory_order_relaxed);
     return;
   }
-  worker_cv_.notify_one();
+  if (was_empty) worker_cv_.notify_one();
 }
 
 bool Receiver::enqueue_job(const Job& j) {
@@ -260,25 +269,18 @@ void Receiver::worker_loop() {
 }
 
 void Receiver::process_job(const Job& j) {
+  // hdr_len was parsed once in handle_dgram and carried through Slot+Job; no re-parse.
   const uint8_t* data = slab_.data() + j.slab_idx * kSlotBytes;
-  uint8_t b0          = data[0];
-  uint8_t b1          = data[1];
-  uint8_t cc          = b0 & 0x0F;
-  uint8_t ext         = (b0 >> 4) & 0x1;
-  size_t hdr          = 12u + 4u * cc;
-  if (ext) {
-    uint16_t ext_words = rd_u16(data + hdr + 2);
-    hdr += 4u + 4u * ext_words;
-  }
-  if (hdr <= j.len && hook_) {
+  if (j.hdr_len <= j.len && hook_) {
+    const uint8_t b1 = data[1];
     Frame f{};
     f.seq          = j.seq;
     f.timestamp    = rd_u32(data + 4);
     f.ssrc         = rd_u32(data + 8);
     f.marker       = (b1 >> 7) & 0x1;
     f.payload_type = b1 & 0x7F;
-    f.payload      = const_cast<uint8_t*>(data + hdr);
-    f.payload_len  = j.len - hdr;
+    f.payload      = const_cast<uint8_t*>(data + j.hdr_len);
+    f.payload_len  = j.len - j.hdr_len;
     hook_(hook_arg_, f);
   }
   ring_[j.slab_idx].in_worker.store(0, std::memory_order_release);

@@ -55,9 +55,10 @@ class Receiver {
   static constexpr size_t kJobQueueSize = kRingSize;
 
   struct Slot {
-    bool filled  = false;
-    uint16_t seq = 0;
-    size_t len   = 0;
+    bool filled      = false;
+    uint16_t seq     = 0;
+    uint16_t hdr_len = 0;  // RTP header length (parsed once in handle_dgram)
+    size_t len       = 0;
     std::atomic<uint8_t> in_worker{0};  // 0 = recv may write, 1 = worker holds slab bytes
   };
 
@@ -65,13 +66,14 @@ class Receiver {
     size_t slab_idx;
     size_t len;
     uint16_t seq;
+    uint16_t hdr_len;
   };
 
   void recv_loop();
   void worker_loop();
   void handle_dgram(uint8_t* data, size_t len);
   void release_in_order();
-  void dispatch(size_t slab_idx, size_t len, uint16_t seq);
+  void dispatch(size_t slab_idx, size_t len, uint16_t seq, uint16_t hdr_len);
   void process_job(const Job& j);
   bool enqueue_job(const Job& j);
   bool dequeue_job(Job& out);
