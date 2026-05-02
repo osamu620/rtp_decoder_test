@@ -48,11 +48,13 @@ uint32_t get_bytes_allocated(void) { return g_allocated_bytes; }
 
 #define BUFSIZE (1024 * 4096)
 
+// Per-frame-resettable arena. The malloc fallback was removed because nothing in this
+// parser frees the per-stream tile/precinct/codeblock structures it allocates — using
+// malloc would leak everything at program exit. The arena is sized for one frame's
+// worth of structure on the user's 4K@60 stream and must not overflow; if a future
+// stream requires more, increase BUFSIZE.
 void *stackAlloc(const size_t n, int reset) {
   g_allocated_bytes += n;
-#ifndef STACK_ALLOC
-  return malloc(n);
-#else
   alignas(8) static uint8_t buffer[BUFSIZE] = {0};
   static size_t index                       = 0;
   if (reset) {
@@ -66,5 +68,4 @@ void *stackAlloc(const size_t n, int reset) {
   uint8_t *out = buffer + index;
   index += n;
   return (void *)out;
-#endif
 }
