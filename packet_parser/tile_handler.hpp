@@ -292,7 +292,7 @@ class tile_hanlder {
   //     downstream consumers see a gap.
   bool try_recover(tile_ *tile) {
     const uint32_t cur_pos = static_cast<uint32_t>(tile->buf->get_pos());
-    // Find the next signal strictly past current src.
+    // Discard signals strictly behind cur_pos (parser already passed them).
     while (!signal_queue_.empty() && signal_queue_.front().byte_offset <= cur_pos) {
       signal_queue_.pop_front();
     }
@@ -302,34 +302,49 @@ class tile_hanlder {
 #endif
       return false;
     }
-    const Signal sig = signal_queue_.front();
     const uint32_t nc = static_cast<uint32_t>(siz.Csiz);
     if (nc == 0) return false;
-    const uint32_t c = sig.pid % nc;
-    const uint32_t s = sig.pid / nc;
-    if (c >= crp_idx_by_pid_.size() || s >= crp_idx_by_pid_[c].size()) {
+    const uint32_t target_crp = static_cast<uint32_t>(tile->crp_idx);
+    // Walk forward through the queue: the first signal beyond cur_pos may map to a CRP
+    // index that's behind target (encoder transmission order doesn't always agree with
+    // parser CRP order at packet boundaries). Skip those and take the first signal whose
+    // PID maps to a CRP index >= target. Discarded "backward" signals can't be reused
+    // anyway — once we snap forward, anything before that byte is unreachable.
+    size_t skipped_backward = 0;
+    while (!signal_queue_.empty()) {
+      const Signal sig = signal_queue_.front();
+      const uint32_t c = sig.pid % nc;
+      const uint32_t s = sig.pid / nc;
+      if (c >= crp_idx_by_pid_.size() || s >= crp_idx_by_pid_[c].size()) {
 #ifdef PARSER_OVERSHOOT_INSTR
-      ostats_.recover_bad_pid++;
+        ostats_.recover_bad_pid++;
 #endif
-      return false;
+        return false;
+      }
+      const uint32_t new_crp_idx = crp_idx_by_pid_[c][s];
+      if (new_crp_idx < target_crp) {
+        // Backward: discard and try the next signal. This signal's bytes lie ahead of
+        // cur_pos but its precinct is behind us — skipping it loses no information we
+        // could have used.
+        signal_queue_.pop_front();
+        skipped_backward++;
+        continue;
+      }
+#ifdef PARSER_OVERSHOOT_INSTR
+      ostats_.recoveries++;
+      ostats_.skipped_precincts += new_crp_idx - tile->crp_idx;
+      ostats_.recover_backward += skipped_backward;  // count discards as "backward seen"
+#endif
+      tile->buf->reset(sig.byte_offset);
+      tile->crp_idx = static_cast<int>(new_crp_idx);
+      signal_queue_.pop_front();
+      return true;
     }
-    const uint32_t new_crp_idx = crp_idx_by_pid_[c][s];
-    // Accept new_crp_idx == current (resume at the same precinct from a corrected
-    // position) or > current (skip ahead). Reject only if it would move backward.
-    if (new_crp_idx < static_cast<uint32_t>(tile->crp_idx)) {
 #ifdef PARSER_OVERSHOOT_INSTR
-      ostats_.recover_backward++;
+    ostats_.recover_no_signal++;
+    ostats_.recover_backward += skipped_backward;
 #endif
-      return false;
-    }
-#ifdef PARSER_OVERSHOOT_INSTR
-    ostats_.recoveries++;
-    ostats_.skipped_precincts += new_crp_idx - tile->crp_idx;
-#endif
-    tile->buf->reset(sig.byte_offset);
-    tile->crp_idx = static_cast<int>(new_crp_idx);
-    signal_queue_.pop_front();  // we're now AT this signal; consume it
-    return true;
+    return false;
   }
 
 #ifdef PARSER_OVERSHOOT_INSTR
