@@ -43,6 +43,16 @@ if(PARSER_OVERSHOOT_INSTR)
     target_compile_definitions(${PROJECT_NAME} PRIVATE PARSER_OVERSHOOT_INSTR)
 endif()
 
+option(ENABLE_LOGGING "Write per-frame .log files to CWD" OFF)
+if(ENABLE_LOGGING)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_LOGGING)
+endif()
+
+option(ENABLE_SAVEJ2C "Write per-frame .j2c files to CWD" OFF)
+if(ENABLE_SAVEJ2C)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_SAVEJ2C)
+endif()
+
 add_subdirectory(packet_parser)
 target_include_directories(rtp_decoder PRIVATE ./ ./packet_parser)
 target_link_libraries(rtp_decoder PUBLIC pthread)

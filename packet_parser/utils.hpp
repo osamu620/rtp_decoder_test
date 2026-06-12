@@ -8,8 +8,8 @@
 
 #define int_log2(x) (31 - __builtin_clz((x) | 1))
 
-// #define ENABLE_SAVEJ2C
-// #define ENABLE_LOGGING
+// ENABLE_SAVEJ2C / ENABLE_LOGGING are CMake options:
+//   cmake -B build -DENABLE_LOGGING=ON -DENABLE_SAVEJ2C=ON
 
 FILE *get_log_file_fp();
 void log_init(const size_t num_frame);

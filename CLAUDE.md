@@ -39,7 +39,7 @@ Defaults are tuned for ZCU102 / Cortex-A53 — see *Deployment* below.
 
 These are not runtime flags — flip them and rebuild:
 
-- `ENABLE_LOGGING`, `ENABLE_SAVEJ2C` in `packet_parser/utils.hpp`: write per-frame `.log` and `.j2c` files to CWD. Off by default.
+- `ENABLE_LOGGING`, `ENABLE_SAVEJ2C` (CMake options, OFF by default): write per-frame `.log` and `.j2c` files to CWD. Enable with `-DENABLE_LOGGING=ON` / `-DENABLE_SAVEJ2C=ON`.
 - `PARSER_OVERSHOOT_INSTR` (CMake option, OFF by default): adds per-precinct byte-overshoot/drift instrumentation and recovery counters. The receiving hook prints periodic stats. See `tile_handler.hpp::OvershootStats`. Counters of interest:
   - `precincts_parsed`, `avg_prec_bytes` — throughput sanity
   - `drift_snaps`, `max_drift_bytes`, `mean_drift` — disagreement between parser end-of-precinct and authoritative resync byte (should be 0 in steady state)
