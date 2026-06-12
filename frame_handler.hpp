@@ -226,6 +226,10 @@ class frame_handler {
       if (!is_parsing_failure && is_passed_header) {
         ACTION(flush);
       }
+      // Write the frame's codestream before the slabs are released — the chain points
+      // into the receiver's slab ring. Uses the same frame number as log_init so
+      // out_NNNNN.j2c pairs with log_NNNNN.log.
+      save_j2c(total_frames, cs);
       trunc_frames += is_parsing_failure;
       total_frames++;
 

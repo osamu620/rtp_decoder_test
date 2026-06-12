@@ -15,5 +15,5 @@ FILE *get_log_file_fp();
 void log_init(const size_t num_frame);
 void log_put(const char *msg);
 void log_close();
-void save_j2c(const size_t num_frame, const uint8_t *incoming_data, const size_t incoming_data_len);
+void save_j2c(const size_t num_frame, const codestream &cs);
 void *stackAlloc(size_t n, int reset);

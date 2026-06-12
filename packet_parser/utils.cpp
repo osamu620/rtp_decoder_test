@@ -29,13 +29,13 @@ void log_close() {
 #endif
 }
 
-void save_j2c([[maybe_unused]] const size_t num_frame, [[maybe_unused]] const uint8_t *incoming_data,
-              [[maybe_unused]] const size_t incoming_data_len) {
+void save_j2c([[maybe_unused]] const size_t num_frame, [[maybe_unused]] const codestream &cs) {
 #ifdef ENABLE_SAVEJ2C
   char buf[128];
   snprintf(buf, 128, "out_%05lu.j2c", num_frame);
   FILE *fp = fopen(buf, "wb");
-  fwrite(incoming_data, 1, incoming_data_len, fp);
+  if (fp == nullptr) return;
+  cs.for_each_chunk([fp](const uint8_t *base, size_t len) { fwrite(base, 1, len, fp); });
   fclose(fp);
 #endif
 }

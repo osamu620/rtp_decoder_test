@@ -84,6 +84,12 @@ class codestream {
 
   // Chain management.
   void append_chunk(const uint8_t *base, size_t len) { chunks_.push_back({base, len}); }
+  // Visit every chunk in chain order, independent of the current read position. Only
+  // valid while the underlying slabs are alive (i.e. before release_held_slabs/clear).
+  template <typename Fn>
+  void for_each_chunk(Fn fn) const {
+    for (const auto &c : chunks_) fn(c.base, c.len);
+  }
   void clear() {
     chunks_.clear();
     staging_.clear();
