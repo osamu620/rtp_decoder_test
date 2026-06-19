@@ -668,8 +668,11 @@ int prepare_precinct_structure(tile_ *tile, const coc_marker *cocs, const dfs_ma
               }
 
               uint32_t p = py[c][r] * rp->npw + px[c][r];
-              // save identified precinct information as a sequence
-              tile->crp[crp_index++] = {(uint8_t)c, (uint8_t)r, (uint16_t)p};
+              // save identified precinct information as a sequence (push_back grows the
+              // reserved crp vector safely — a fixed crp[crp_index] write overflowed it
+              // for streams with more precincts than the reserve hint)
+              tile->crp.push_back({(uint8_t)c, (uint8_t)r, (uint16_t)p});
+              ++crp_index;
 
               px[c][r] += 1;
               if (px[c][r] == rp->npw) {

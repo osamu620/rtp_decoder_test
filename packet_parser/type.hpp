@@ -448,7 +448,10 @@ class tile_ {
     coord             = {};
     num_components    = MAX_NUM_COMPONENTS;
     progression_order = po;
-    crp.resize(1890 * 3);
+    crp.reserve(1890 * 3);  // capacity HINT only; prepare_precinct_structure push_backs,
+                            // so it grows safely for streams with >5670 precincts
+                            // (e.g. ATK_DFS_REV: FSH=8 -> 8100). A hard resize() here
+                            // was an out-of-bounds write (heap corruption) on those.
     crp_idx         = 0;
     is_crp_complete = false;
   }
