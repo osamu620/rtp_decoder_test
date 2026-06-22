@@ -754,8 +754,11 @@ int prepare_precinct_structure(tile_ *tile, const coc_marker *cocs, const dfs_ma
       break;
     }
     default:
-      printf("Only PCRL or PRCL are supported %d\n", PO);
-      break;
+      // Unsupported progression order (this front end + the downstream HW decoder
+      // handle PCRL and PRCL only). Report failure so the caller fails the frame
+      // cleanly instead of silently emitting an empty precinct structure.
+      printf("Unsupported progression order %d (only PCRL and PRCL are supported)\n", PO);
+      return EXIT_FAILURE;
   }
   // for (int i = 0; i < tile->crp.size(); ++i) {
   //   printf("i = %d, c = %d, r = %d, p = %d\n", i, tile->crp[i].c, tile->crp[i].r, tile->crp[i].p);

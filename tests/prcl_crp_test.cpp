@@ -72,7 +72,14 @@ int main(int argc, char **argv) {
     std::fprintf(stderr, "error: parse_main_header failed (not a valid codestream?)\n");
     return 2;
   }
-  th.create(&cs);
+  if (!th.create(&cs)) {
+    std::fprintf(stderr, "error: create() failed — unsupported progression (%zu/%zu tiles built)\n",
+                 th.get_num_tiles(), (size_t)0);
+    th.restart(0);  // exercise the per-frame cleanup the real pipeline runs at EOC on a
+                    // rejected stream — must not crash on a partially-built (multi-tile) state
+    std::fprintf(stderr, "cleanup (restart) survived a rejected stream\n");
+    return 3;
+  }
 
   const siz_marker *siz = th.get_siz();
   const coc_marker *cocs = th.get_cocs();

@@ -176,7 +176,10 @@ class frame_handler {
       if (!held_slabs_.empty()) {
         release_held_slabs();
         tile_hndr.restart(0);
-        if (is_passed_header) {
+        // Count the abandoned frame once. is_parsing_failure covers a frame rejected at
+        // create()/parse whose EOC was lost on the wire (is_passed_header never set);
+        // mirrors the EOC early-skip block's condition so counts stay consistent.
+        if (is_passed_header || is_parsing_failure) {
           trunc_frames++;
           total_frames++;
         }
@@ -191,13 +194,20 @@ class frame_handler {
         if (MH >= 2) {  // complete main header in this packet
           start_SOD = parse_main_header(&cs, tile_hndr.get_siz(), tile_hndr.get_cod(), tile_hndr.get_cocs(),
                                         tile_hndr.get_qcd(), tile_hndr.get_dfs());
-          tile_hndr.create(&cs);
+          if (start_SOD == 0 || !tile_hndr.create(&cs)) {
+            // Malformed/desynced main header, or an unsupported progression order:
+            // fail the frame cleanly. Body packets are then dropped and the frame is
+            // counted as truncated at EOC, instead of proceeding with an empty/invalid
+            // precinct structure (or risking a non-terminating main-header scan).
+            is_parsing_failure = 1;
+            return;
+          }
           is_passed_header = 1;
         } else {
           start_SOD += static_cast<uint32_t>(size);
-        }
-        if (start_SOD == 0) {
-          return;  // something wrong
+          if (start_SOD == 0) {
+            return;  // something wrong
+          }
         }
       } else {
         // Subsequent frames: position the codestream reader at start_SOD within the

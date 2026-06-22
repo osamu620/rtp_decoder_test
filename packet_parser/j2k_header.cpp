@@ -335,6 +335,7 @@ void print_SIZ(siz_marker *siz, coc_marker *cocs, dfs_marker *dfs) {
 }
 
 static uint16_t g_Ccap15 = 0;
+static uint16_t g_Ccap2  = 0;  // Part-2 extended capabilities; bit 14 = EXTENDED_PROGRESSION
 uint16_t get_Ccap15() { return g_Ccap15; }
 
 static int parse_CAP(codestream *buf) {
@@ -342,9 +343,12 @@ static int parse_CAP(codestream *buf) {
   uint32_t Pcap = buf->get_dword();
   uint16_t expected_words = (Lcap >= 6) ? static_cast<uint16_t>((Lcap - 6) / 2) : 0;
   uint16_t read_words = 0;
+  // Pcap bit i (numbered 1=MSB..32=LSB) signals Part i. Loop index i=0 -> bit 31 (Part 1),
+  // i=1 -> Part 2, i=14 -> Part 15. Each set bit is followed by one Ccap^i word.
   for (int i = 0; i < 32; ++i) {
     if (Pcap & (1u << (31 - i))) {
       uint16_t v = buf->get_word();
+      if (i == 1) g_Ccap2 = v;    // Part 2 (extended progression etc.)
       if (i == 14) g_Ccap15 = v;  // Part 15
       read_words++;
     }
@@ -364,8 +368,19 @@ uint32_t parse_main_header(codestream *buf, siz_marker *siz, cod_marker *cod, co
   }
 
   g_Ccap15 = 0;
+  g_Ccap2  = 0;
   uint16_t marker;
   while ((marker = buf->get_word()) != SOD) {
+    // Robustness (broadcast: lossy RTP transport, no retransmission): a corrupt,
+    // truncated, or desynced main header must fail cleanly, not spin forever. Past the
+    // end of the chain get_word() returns 0, which never equals SOD; a framing loss
+    // makes get_word() return a non-marker value. Every legal main-header marker is
+    // 0xFFxx and is not EOC, so anything else means the scan has lost framing or run
+    // off the end. Each accepted marker advances the reader, so the loop is bounded.
+    if ((marker & 0xFF00) != 0xFF00 || marker == EOC) {
+      printf("main header parse failed: unexpected 0x%04x before SOD\n", marker);
+      return 0;
+    }
     switch (marker) {
       case SIZ:
         parse_SIZ(buf, siz);
@@ -393,6 +408,14 @@ uint32_t parse_main_header(codestream *buf, siz_marker *siz, cod_marker *cod, co
         skip_marker(buf);
         break;
     }
+  }
+  // Part-2 capability sanity check (informational, non-fatal): PRCL is an ISO/IEC
+  // 15444-2 extended progression and a conformant stream advertises it via CAP Ccap^2
+  // bit 14 (EXTENDED_PROGRESSION). A mismatch usually means a misconfigured encoder /
+  // contribution feed — warn early. Parsing proceeds regardless: the progression order
+  // is taken from COD/COC, which is the authoritative field.
+  if (cocs[0].progression_order == PRCL && !((g_Ccap2 >> 14) & 0x1)) {
+    printf("warning: PRCL progression order but CAP EXTENDED_PROGRESSION (Ccap2 bit 14) not signalled\n");
   }
   return buf->get_pos();
 }

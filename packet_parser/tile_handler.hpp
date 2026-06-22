@@ -135,10 +135,16 @@ class tile_handler {
   // as packet identity. Used by the PRCL/PCRL order tests; not on any hot path.
   const std::vector<crp_status> &get_tile_crp(size_t t = 0) const { return tiles.at(t).crp; }
   size_t get_num_tiles() const { return tiles.size(); }
-  void create(codestream *buf) {
+  // Returns false if the main header describes a stream this front end cannot build a
+  // precinct structure for (e.g. an unsupported progression order). The caller MUST fail
+  // the frame on false rather than proceed with an empty/invalid structure.
+  bool create(codestream *buf) {
     num_tiles_x = ceildiv_int((siz.Xsiz - siz.XTOsiz), siz.XTsiz);
     num_tiles_y = ceildiv_int((siz.Ysiz - siz.YTOsiz), siz.YTsiz);
 
+    // Idempotent rebuild: drop any tiles left by a prior failed attempt so a retried
+    // create() on a persistently-unsupported stream cannot accumulate tiles.
+    tiles.clear();
     if (num_tiles_x && num_tiles_y) tiles.reserve(num_tiles_x * num_tiles_y);
 
     for (uint32_t t = 0; t < num_tiles_x && num_tiles_y; ++t) {
@@ -171,7 +177,10 @@ class tile_handler {
           }
           parepare_tcomp_structure(tcp, coc, &dfs);
         }
-        prepare_precinct_structure(tile, cocs, &dfs);
+        if (prepare_precinct_structure(tile, cocs, &dfs) != EXIT_SUCCESS) {
+          ready = false;
+          return false;  // unsupported/invalid stream — caller fails the frame
+        }
       }
     }
     // Build the per-component CRP-index lookup for recovery. crp_idx_by_pid_[c] is the
@@ -186,6 +195,7 @@ class tile_handler {
       }
     }
     ready = true;
+    return true;
   }
 
   int parse(uint32_t /*PID*/) {
@@ -365,7 +375,11 @@ class tile_handler {
     // we do NOT call tile->buf->reset here — the chain is empty at this point and
     // setting cur_offset_ without chunks would leave it in an inconsistent state.
     signal_queue_.clear();
-    for (uint32_t t = 0; t < num_tiles_x * num_tiles_y; ++t) {
+    // Bound by tiles.size(), not num_tiles_x*num_tiles_y: a create() that fails partway
+    // (e.g. unsupported progression) leaves fewer tiles built than the grid implies, and
+    // restart() can run at EOC on that partial build. For a fully-built stream the two
+    // are equal, so this is behaviour-preserving for valid streams.
+    for (size_t t = 0; t < tiles.size(); ++t) {
       tile_ *tile   = &tiles[t];
       tile->crp_idx = 0;
       for (uint32_t c = tile->num_components; c > 0; --c) {
