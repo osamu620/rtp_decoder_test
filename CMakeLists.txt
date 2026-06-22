@@ -56,3 +56,17 @@ endif()
 add_subdirectory(packet_parser)
 target_include_directories(rtp_decoder PRIVATE ./ ./packet_parser)
 target_link_libraries(rtp_decoder PUBLIC pthread)
+
+# Opt-in parser tests (e.g. the PRCL/PCRL progression-order test). Off by default so
+# the production build stays lean; enable with -DBUILD_TESTS=ON.
+option(BUILD_TESTS "Build packet-parser unit/order tests" OFF)
+if(BUILD_TESTS)
+    add_executable(prcl_crp_test
+        tests/prcl_crp_test.cpp
+        packet_parser/j2k_header.cpp
+        packet_parser/j2k_packet.cpp
+        packet_parser/utils.cpp
+    )
+    target_compile_definitions(prcl_crp_test PRIVATE NDEBUG)
+    target_include_directories(prcl_crp_test PRIVATE ./ ./packet_parser)
+endif()

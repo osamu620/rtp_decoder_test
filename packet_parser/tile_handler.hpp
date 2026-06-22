@@ -130,6 +130,11 @@ class tile_handler {
   qcd_marker *get_qcd() { return &qcd; }
   dfs_marker *get_dfs() { return &dfs; }
   bool is_ready() { return ready; }
+  // Test/inspection hook: the CRP walk (component/resolution/precinct sequence) built by
+  // prepare_precinct_structure for tile t. This IS the progression order the parser uses
+  // as packet identity. Used by the PRCL/PCRL order tests; not on any hot path.
+  const std::vector<crp_status> &get_tile_crp(size_t t = 0) const { return tiles.at(t).crp; }
+  size_t get_num_tiles() const { return tiles.size(); }
   void create(codestream *buf) {
     num_tiles_x = ceildiv_int((siz.Xsiz - siz.XTOsiz), siz.XTsiz);
     num_tiles_y = ceildiv_int((siz.Ysiz - siz.YTOsiz), siz.YTsiz);

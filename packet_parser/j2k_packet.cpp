@@ -688,8 +688,71 @@ int prepare_precinct_structure(tile_ *tile, const coc_marker *cocs, const dfs_ma
 
       break;
 
-    case PRCL:
+    case PRCL: {
+      // PRCL (ISO/IEC 15444-2, I.2.6): position-resolution level-component-layer.
+      // Identical to PCRL except the inner two loops are transposed: PCRL visits
+      // (...for c: for r:), PRCL visits (...for r: for c:). The position (y,x) loops
+      // stay outermost, so the spatial streaming order matches PCRL; only the
+      // component/resolution visitation within each position-step is swapped. The set
+      // of precincts is identical — a pure local permutation. Mirrored byte-for-byte
+      // from OpenHTJ2K coding_units.cpp case 5 (the resolution loop nested inside the
+      // spatial loops, with a per-component `r <= NL` guard in place of PCRL's
+      // per-component resolution bound).
+      step_x = 32;
+      step_y = 32;
+      uint32_t RE_max = 0;
+      for (uint32_t c = CS; c < CE; ++c) {
+        const coc_marker *coc = &cocs[c];
+        for (uint32_t r = RS; r < coc->NL + 1; ++r) {
+          step_x = LOCAL_MIN(step_x, coc->prw[r]);
+          step_y = LOCAL_MIN(step_y, coc->prh[r]);
+        }
+        if (coc->NL + 1U > RE_max) RE_max = coc->NL + 1U;  // global resolution bound
+      }
+
+      step_x = 1 << step_x;
+      step_y = 1 << step_y;
+
+      for (uint32_t y = tile->coord.y0; y < tile->coord.y1; y += step_y) {
+        for (uint32_t x = tile->coord.x0; x < tile->coord.x1; x += step_x) {
+          for (uint32_t r = RS; r < RE_max; ++r) {
+            for (uint32_t c = CS; c < CE; ++c) {
+              const coc_marker *coc = &cocs[c];
+              tcomp_ *tcp           = &(tile->tcomp[c]);
+              if (r >= coc->NL + 1U) continue;  // upstream: if (r <= c_NL)
+              res_ *rp     = &tcp->res[r];
+              uint32_t xNL = dfs->hor_depth[coc->NL - r];  // get_hor_depth(coc->NL - r, dfs);
+              uint32_t yNL = dfs->ver_depth[coc->NL - r];  // get_ver_depth(coc->NL - r, dfs);
+
+              if (!((x % (tcp->sub_x * (1U << (coc->prw[r] + xNL))) == 0)
+                    || ((x == tile->coord.x0)
+                        && ((rp->coord.x0 * (1U << (xNL))) % (1U << (coc->prw[r] + xNL)) != 0)))) {
+                continue;
+              }
+              if (!((y % (tcp->sub_y * (1U << (coc->prh[r] + yNL))) == 0)
+                    || ((y == tile->coord.y0)
+                        && ((rp->coord.y0 * (1U << (yNL))) % (1U << (coc->prh[r] + yNL)) != 0)))) {
+                continue;
+              }
+
+              uint32_t p = py[c][r] * rp->npw + px[c][r];
+              tile->crp.push_back({(uint8_t)c, (uint8_t)r, (uint16_t)p});
+              ++crp_index;
+
+              px[c][r] += 1;
+              if (px[c][r] == rp->npw) {
+                px[c][r] = 0;
+                py[c][r] += 1;
+              }
+            }
+          }
+        }
+      }
+      tile->crp.resize(crp_index);
+      tile->is_crp_complete = true;
+
       break;
+    }
     default:
       printf("Only PCRL or PRCL are supported %d\n", PO);
       break;
