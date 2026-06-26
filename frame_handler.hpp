@@ -38,6 +38,10 @@ class frame_handler {
   // doesn't need to know about rtp::Receiver directly.
   using ReleaseSlabCb = void (*)(void *user, size_t slab_idx);
 
+  // Fired once per completed frame at EOC (see set_frame_ready_callback). Declared here,
+  // ahead of the data members that reference it.
+  using FrameReadyCb = void (*)(void *user, const codestream &cs, bool intact);
+
  private:
   // Held slab indices for the in-flight frame. Drained at EOC via release_slab_cb_.
   std::vector<size_t> held_slabs_;
@@ -57,6 +61,9 @@ class frame_handler {
 
   ReleaseSlabCb release_slab_cb_;
   void *release_slab_arg_;
+
+  FrameReadyCb frame_ready_cb_ = nullptr;
+  void *frame_ready_arg_       = nullptr;
 
   void release_held_slabs() {
     if (release_slab_cb_) {
@@ -101,6 +108,17 @@ class frame_handler {
   void set_release_slab_callback(ReleaseSlabCb cb, void *arg) {
     release_slab_cb_  = cb;
     release_slab_arg_ = arg;
+  }
+
+  // Frame-ready callback: fired once per completed frame at EOC, BEFORE the held slabs
+  // are released — so `cs`'s zero-copy chain is still valid for the duration of the call.
+  // `intact` is true iff the main header parsed and no precinct parse failure occurred
+  // (false = damaged: lost packets or a parse failure). A frame-granular consumer (e.g.
+  // an FPGA whole-frame decoder) can pull the contiguous codestream via cs.for_each_chunk()
+  // inside the callback. Independent of (and composable with) the per-precinct callback.
+  void set_frame_ready_callback(FrameReadyCb cb, void *arg) {
+    frame_ready_cb_  = cb;
+    frame_ready_arg_ = arg;
   }
 
 #ifdef PARSER_OVERSHOOT_INSTR
@@ -233,13 +251,17 @@ class frame_handler {
     }
 
     if (marker) {  // EOC of this frame
-      if (!is_parsing_failure && is_passed_header) {
+      const bool frame_intact = !is_parsing_failure && is_passed_header;
+      if (frame_intact) {
         ACTION(flush);
       }
       // Write the frame's codestream before the slabs are released — the chain points
       // into the receiver's slab ring. Uses the same frame number as log_init so
       // out_NNNNN.j2c pairs with log_NNNNN.log.
       save_j2c(total_frames, cs);
+      // Hand the completed frame to a frame-granular consumer while cs's chain is still
+      // valid (the held slabs are released just below). intact=false => damaged frame.
+      if (frame_ready_cb_) frame_ready_cb_(frame_ready_arg_, cs, frame_intact);
       trunc_frames += is_parsing_failure;
       total_frames++;
 
