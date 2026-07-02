@@ -42,6 +42,34 @@ class frame_handler {
   // ahead of the data members that reference it.
   using FrameReadyCb = void (*)(void *user, const codestream &cs, bool intact);
 
+  // ---- Incremental (sub-frame) delivery — see set_chunk_callback ----
+  // Fired for EVERY byte range appended to the current frame's codestream, in codestream
+  // order, as it arrives: the main-header packet first (offset 0), then each body
+  // packet's J2K bytes. Guarantees, per frame: offsets are strictly contiguous
+  // (offset_n+1 == offset_n + len_n) and no chunk is delivered after the frame dies —
+  // a frame ends in EITHER frame_ready (EOC; all bytes were delivered) OR frame_abort,
+  // never both mid-stream. `bytes` is valid ONLY during the call (receiver slab memory).
+  // An arrival-chasing consumer (e.g. a hardware decoder fed behind the RTP write
+  // cursor) can copy/forward each range immediately.
+  using ChunkCb = void (*)(void *user, size_t offset, const uint8_t *bytes, size_t len);
+
+  // Fired at most ONCE per frame, the moment an in-flight frame becomes undecodable:
+  //   kAbortGap        — packet loss immediately before this packet (pull_data gap=true)
+  //   kAbortParse      — main-header or precinct parse failure
+  //   kAbortMissedEOC  — a new frame's main packet arrived while this one was still open
+  //   kAbortSlabCap    — the held-slab runaway cap released the frame
+  //   kAbortDamagedEOC — EOC reached on a frame already being skipped (belt-and-braces;
+  //                      normally the abort already fired at the damage point)
+  // After an abort, no further chunks are delivered until the next frame's main packet.
+  // A parse failure at/after EOC (flush) does NOT abort: every byte was already
+  // delivered, so a byte-stream consumer's frame is complete regardless.
+  using FrameAbortCb = void (*)(void *user, int reason);
+  static constexpr int kAbortGap        = 1;
+  static constexpr int kAbortParse      = 2;
+  static constexpr int kAbortMissedEOC  = 3;
+  static constexpr int kAbortSlabCap    = 4;
+  static constexpr int kAbortDamagedEOC = 5;
+
  private:
   // Held slab indices for the in-flight frame. Drained at EOC via release_slab_cb_.
   std::vector<size_t> held_slabs_;
@@ -64,6 +92,26 @@ class frame_handler {
 
   FrameReadyCb frame_ready_cb_ = nullptr;
   void *frame_ready_arg_       = nullptr;
+
+  ChunkCb chunk_cb_            = nullptr;
+  void *chunk_arg_             = nullptr;
+  FrameAbortCb frame_abort_cb_ = nullptr;
+  void *frame_abort_arg_       = nullptr;
+  // True while a frame is open and clean from the byte-delivery perspective: set when
+  // its first chunk is delivered, cleared at EOC handoff or by fire_abort. Guarantees
+  // the at-most-one-abort-per-frame contract.
+  bool abort_armed_ = false;
+
+  void deliver_chunk(size_t offset, const uint8_t *bytes, size_t len) {
+    abort_armed_ = true;
+    if (chunk_cb_) chunk_cb_(chunk_arg_, offset, bytes, len);
+  }
+
+  void fire_abort(int reason) {
+    if (!abort_armed_) return;
+    abort_armed_ = false;
+    if (frame_abort_cb_) frame_abort_cb_(frame_abort_arg_, reason);
+  }
 
   void release_held_slabs() {
     if (release_slab_cb_) {
@@ -121,6 +169,20 @@ class frame_handler {
     frame_ready_arg_ = arg;
   }
 
+  // Incremental delivery (see the ChunkCb/FrameAbortCb contracts above). Both are
+  // independent of — and composable with — the per-precinct and frame-ready callbacks;
+  // unset (the default) they cost one nullptr test per packet and change nothing.
+  // For loss-exactness the caller should pass `gap` into pull_data (see there).
+  void set_chunk_callback(ChunkCb cb, void *arg) {
+    chunk_cb_  = cb;
+    chunk_arg_ = arg;
+  }
+
+  void set_frame_abort_callback(FrameAbortCb cb, void *arg) {
+    frame_abort_cb_  = cb;
+    frame_abort_arg_ = arg;
+  }
+
 #ifdef PARSER_OVERSHOOT_INSTR
   tile_handler::OvershootStats get_overshoot_stats() const { return tile_hndr.get_overshoot_stats(); }
   void reset_overshoot_stats() { tile_hndr.reset_overshoot_stats(); }
@@ -143,7 +205,23 @@ class frame_handler {
   inline size_t get_lost_frames() const { return this->lost_frames; }
   inline size_t get_trunc_frames() const { return this->trunc_frames; }
 
-  void pull_data(uint8_t *__restrict__ payload, size_t size, int marker, size_t slab_idx) {
+  // `gap` (optional): true iff one or more RTP packets were lost immediately before this
+  // one (an RTP sequence discontinuity, computed by the caller's hook — the receiver
+  // delivers in order, so a seq skip IS a loss). With a frame in flight this makes loss
+  // detection immediate and deterministic for the incremental consumer: the frame is
+  // aborted at the gap instead of waiting for a downstream parse failure to notice.
+  // Callers that don't track seq (the default) keep today's parse-level detection.
+  void pull_data(uint8_t *__restrict__ payload, size_t size, int marker, size_t slab_idx,
+                 bool gap = false) {
+    // A gap kills any in-flight frame: bytes are missing, so neither the parser nor a
+    // byte-stream consumer can use what follows. Mark it failed — the body-skip path
+    // below then drops packets until the next main packet resyncs us. (A gap with
+    // nothing in flight lost only packets of frames we never started: nothing to do.)
+    if (gap && (is_passed_header || !held_slabs_.empty()) && !is_parsing_failure) {
+      fire_abort(kAbortGap);
+      is_parsing_failure = 1;
+    }
+
     // Safety: if EOC has been missed for many packets, held_slabs_ would otherwise grow
     // unbounded and exhaust the receiver's slot ring (causing busy/net drop cascades).
     // 3072 leaves ~1024 slots of headroom in a 4096-slot ring — enough for a couple of
@@ -151,6 +229,7 @@ class frame_handler {
     // next MH packet before resuming parsing (otherwise cs.reset(start_SOD) would
     // position us inside a body chunk).
     if (held_slabs_.size() >= 3072) {
+      fire_abort(kAbortSlabCap);
       release_held_slabs();
       tile_hndr.restart(0);
       trunc_frames += 1;
@@ -171,6 +250,7 @@ class frame_handler {
         // would still be 1 for the rare case where the EOC body packet itself failed
         // before this branch). Either way, increment trunc + total to keep counts honest.
         if (is_parsing_failure || is_passed_header) {
+          fire_abort(kAbortDamagedEOC);  // normally a no-op: the abort fired at the damage
           trunc_frames++;
           total_frames++;
         }
@@ -192,6 +272,7 @@ class frame_handler {
       // Defensive: if we missed previous frame's EOC, the chain still holds stale
       // chunks. Release them so this MH starts a fresh chain.
       if (!held_slabs_.empty()) {
+        fire_abort(kAbortMissedEOC);  // the open frame will never complete
         release_held_slabs();
         tile_hndr.restart(0);
         // Count the abandoned frame once. is_parsing_failure covers a frame rejected at
@@ -204,6 +285,7 @@ class frame_handler {
         is_passed_header = 0;
       }
       is_parsing_failure = 0;
+      deliver_chunk(chain_total_bytes_, j2k_payload, size);
       cs.append_chunk(j2k_payload, size);
       held_slabs_.push_back(slab_idx);
       chain_total_bytes_ += size;
@@ -217,6 +299,7 @@ class frame_handler {
             // fail the frame cleanly. Body packets are then dropped and the frame is
             // counted as truncated at EOC, instead of proceeding with an empty/invalid
             // precinct structure (or risking a non-terminating main-header scan).
+            fire_abort(kAbortParse);
             is_parsing_failure = 1;
             return;
           }
@@ -236,6 +319,7 @@ class frame_handler {
       }
     } else {
       // Body packet (and we're actively parsing): append its J2K bytes to the chain.
+      deliver_chunk(chain_total_bytes_, j2k_payload, size);
       cs.append_chunk(j2k_payload, size);
       held_slabs_.push_back(slab_idx);
       // Note resync byte before bumping the running total.
@@ -246,11 +330,16 @@ class frame_handler {
         tile_hndr.append_signal(resync_byte, PID);
         if (!is_parsing_failure) {
           ACTION(parse, PID);
+          if (is_parsing_failure) fire_abort(kAbortParse);  // ACTION just set it
         }
       }
     }
 
     if (marker) {  // EOC of this frame
+      // Byte delivery is complete: disarm the abort. A flush() parse failure below no
+      // longer aborts — every byte reached the incremental consumer, whose own decoder
+      // judges the stream for itself.
+      abort_armed_ = false;
       const bool frame_intact = !is_parsing_failure && is_passed_header;
       if (frame_intact) {
         ACTION(flush);

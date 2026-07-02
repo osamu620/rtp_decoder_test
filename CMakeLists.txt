@@ -69,4 +69,15 @@ if(BUILD_TESTS)
     )
     target_compile_definitions(prcl_crp_test PRIVATE NDEBUG)
     target_include_directories(prcl_crp_test PRIVATE ./ ./packet_parser)
+
+    # Contract test for frame_handler's incremental (sub-frame) delivery:
+    # chunk/abort callbacks + the pull_data gap parameter.
+    add_executable(incremental_delivery_test
+        tests/incremental_delivery_test.cpp
+        packet_parser/j2k_header.cpp
+        packet_parser/j2k_packet.cpp
+        packet_parser/utils.cpp
+    )
+    target_compile_definitions(incremental_delivery_test PRIVATE NDEBUG)
+    target_include_directories(incremental_delivery_test PRIVATE ./ ./packet_parser)
 endif()
