@@ -70,6 +70,20 @@ class frame_handler {
   static constexpr int kAbortSlabCap    = 4;
   static constexpr int kAbortDamagedEOC = 5;
 
+  // ---- Transport-assisted mid-frame resync (C2 Stage C; consumer = a decoder
+  // that can resume at an RFC 9828 resync point, e.g. the H2L1 PL).
+  // ResyncGapCb: fired INSTEAD of the kAbortGap abort when a gap hits a frame in
+  // flight. `seam` = bytes delivered so far (the chain is COMPACTED: post-gap
+  // chunks keep appending right after it). Return true to ARM the resync — the
+  // frame keeps delivering; false = decline, today's kAbortGap abort fires.
+  // ResyncPointCb: fired for EACH ORDB resync point after an armed gap, with the
+  // point's arrival-space byte offset (chain_total at the packet + POS) and its
+  // PID. Return true once the consumer has accepted a point (disarms the offer
+  // stream); false = keep offering later points. The software precinct walk
+  // stays live and self-recovers via its own signal queue (try_recover).
+  using ResyncGapCb   = bool (*)(void *user, size_t seam);
+  using ResyncPointCb = bool (*)(void *user, size_t resync_byte, uint32_t pid);
+
  private:
   // Held slab indices for the in-flight frame. Drained at EOC via release_slab_cb_.
   std::vector<size_t> held_slabs_;
@@ -97,6 +111,16 @@ class frame_handler {
   void *chunk_arg_             = nullptr;
   FrameAbortCb frame_abort_cb_ = nullptr;
   void *frame_abort_arg_       = nullptr;
+  ResyncGapCb resync_gap_cb_     = nullptr;
+  void *resync_gap_arg_          = nullptr;
+  ResyncPointCb resync_point_cb_ = nullptr;
+  void *resync_point_arg_        = nullptr;
+  bool resync_armed_ = false;  // gap accepted by the consumer; offering points
+  // True from the first accepted gap until the frame ends: the SOFTWARE precinct
+  // walk is parked (it would garbage-parse at the compaction seam and abort the
+  // frame — the resync consumer's own decoder handles the seam), while chunk
+  // delivery continues. The walk restarts clean for the next frame.
+  bool resync_soft_ = false;
   // True while a frame is open and clean from the byte-delivery perspective: set when
   // its first chunk is delivered, cleared at EOC handoff or by fire_abort. Guarantees
   // the at-most-one-abort-per-frame contract.
@@ -108,6 +132,8 @@ class frame_handler {
   }
 
   void fire_abort(int reason) {
+    resync_armed_ = false;  // the frame is over from the resync offer's perspective
+    resync_soft_  = false;
     if (!abort_armed_) return;
     abort_armed_ = false;
     if (frame_abort_cb_) frame_abort_cb_(frame_abort_arg_, reason);
@@ -183,6 +209,16 @@ class frame_handler {
     frame_abort_arg_ = arg;
   }
 
+  // C2 Stage C (see the typedefs above): register a resync-capable consumer.
+  // Both must be set for the gap-accept path to engage.
+  void set_resync_callbacks(ResyncGapCb gap_cb, void *gap_arg,
+                            ResyncPointCb point_cb, void *point_arg) {
+    resync_gap_cb_    = gap_cb;
+    resync_gap_arg_   = gap_arg;
+    resync_point_cb_  = point_cb;
+    resync_point_arg_ = point_arg;
+  }
+
 #ifdef PARSER_OVERSHOOT_INSTR
   tile_handler::OvershootStats get_overshoot_stats() const { return tile_hndr.get_overshoot_stats(); }
   void reset_overshoot_stats() { tile_hndr.reset_overshoot_stats(); }
@@ -217,9 +253,18 @@ class frame_handler {
     // byte-stream consumer can use what follows. Mark it failed — the body-skip path
     // below then drops packets until the next main packet resyncs us. (A gap with
     // nothing in flight lost only packets of frames we never started: nothing to do.)
+    // C2 Stage C exception: a resync-capable consumer may ACCEPT the gap instead —
+    // the chain then keeps delivering (compacted) and ORDB points are offered until
+    // the consumer takes one. Declined/absent consumer = today's abort, unchanged.
     if (gap && (is_passed_header || !held_slabs_.empty()) && !is_parsing_failure) {
-      fire_abort(kAbortGap);
-      is_parsing_failure = 1;
+      if (resync_gap_cb_ && is_passed_header &&
+          resync_gap_cb_(resync_gap_arg_, chain_total_bytes_)) {
+        resync_armed_ = true;
+        resync_soft_  = true;  // park the software walk for the rest of the frame
+      } else {
+        fire_abort(kAbortGap);
+        is_parsing_failure = 1;
+      }
     }
 
     // Safety: if EOC has been missed for many packets, held_slabs_ would otherwise grow
@@ -328,7 +373,11 @@ class frame_handler {
       chain_total_bytes_ += size;
       if (ORDB && is_passed_header) {
         tile_hndr.append_signal(resync_byte, PID);
-        if (!is_parsing_failure) {
+        // C2 Stage C: offer each post-gap resync point until the consumer takes one
+        if (resync_armed_ && resync_point_cb_ &&
+            resync_point_cb_(resync_point_arg_, resync_byte, PID))
+          resync_armed_ = false;
+        if (!is_parsing_failure && !resync_soft_) {
           ACTION(parse, PID);
           if (is_parsing_failure) fire_abort(kAbortParse);  // ACTION just set it
         }
@@ -339,8 +388,12 @@ class frame_handler {
       // Byte delivery is complete: disarm the abort. A flush() parse failure below no
       // longer aborts — every byte reached the incremental consumer, whose own decoder
       // judges the stream for itself.
-      abort_armed_ = false;
-      const bool frame_intact = !is_parsing_failure && is_passed_header;
+      abort_armed_  = false;
+      resync_armed_ = false;  // C2 Stage C: no points beyond the frame
+      // A resynced frame is complete for the BYTE consumer but its software walk
+      // is parked (and the chain is compacted) — flushing would garbage-parse.
+      const bool frame_intact = !is_parsing_failure && is_passed_header && !resync_soft_;
+      resync_soft_ = false;
       if (frame_intact) {
         ACTION(flush);
       }
