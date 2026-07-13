@@ -44,7 +44,11 @@ bool Receiver::start(const std::string& local_addr, uint16_t local_port, void* h
   int reuse = 1;
   ::setsockopt(sock_fd_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
   if (rcvbuf_size_ > 0) {
-    ::setsockopt(sock_fd_, SOL_SOCKET, SO_RCVBUF, &rcvbuf_size_, sizeof(rcvbuf_size_));
+    // SO_RCVBUF is silently capped by net.core.rmem_max (208 KB on stock PetaLinux =
+    // ~1.9 ms at 885 Mbps); SO_RCVBUFFORCE bypasses the cap when running as root.
+    if (::setsockopt(sock_fd_, SOL_SOCKET, SO_RCVBUFFORCE, &rcvbuf_size_, sizeof(rcvbuf_size_)) < 0) {
+      ::setsockopt(sock_fd_, SOL_SOCKET, SO_RCVBUF, &rcvbuf_size_, sizeof(rcvbuf_size_));
+    }
   }
 
   sockaddr_in addr{};
