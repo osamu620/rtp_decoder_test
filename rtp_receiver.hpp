@@ -69,11 +69,19 @@ class Receiver {
   void set_worker_cpu(int cpu) { worker_cpu_ = cpu; }
 
  private:
-  // 4096 slots × 9216 bytes ≈ 38 MB. Larger than 1024 because the chain-reader keeps
-  // every packet's slab "in_worker" for an entire frame (~1300 packets at 4K@60 1.7bpp).
-  // Recv runs ahead of the worker, so the working set is roughly one frame + jitter
-  // headroom; 4096 leaves ~3× margin.
-  static constexpr size_t kRingSize     = 4096;
+  // 16384 slots × 9216 bytes ≈ 151 MB. The chain-reader keeps every packet's slab
+  // "in_worker" for an entire frame (~1300 packets at 4K@60 1.7bpp), so the ring must
+  // absorb (frames-in-flight + arrival-vs-decode lag + tail events) × frame size.
+  // 4096 (~3.1 frames at 1.7bpp) was NOT enough: with chase running laggard
+  // (mh->done 1.7–2.5 slots) the steady margin was ~0.4 frames, and any tail event
+  // (50 ms decode timeout, a 21.5 ms encoder frame delivery, a beat stall) wrapped
+  // recv onto in_worker slots. Every such discard is counted TWICE in the stats —
+  // once as slot_busy at the collision, once as net_lost when the head force-advances
+  // past the hole — which is why a clean wire shows net_lost == slot_busy exactly
+  // (silicon 2026-07-14: 330,819 == 330,819 over 25 min at 1.7 bpp with a
+  // 0-gap/9.47M-packet wire capture; ~0.59% of frames degraded from self-discards).
+  // 16384 ≈ 12.5 frames at 1.7 bpp absorbs ~200 ms of worker hold before wrapping.
+  static constexpr size_t kRingSize     = 16384;
   static constexpr size_t kSlotBytes    = 9216;
   static constexpr size_t kJobQueueSize = kRingSize;
 
