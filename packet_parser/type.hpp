@@ -494,8 +494,9 @@ enum j2kmarker {
   CRG = 0xFF63,
   COM = 0xFF64,
 
-  // Part 2 marker segment
+  // Part 2 marker segments
   DFS = 0xFF72,
+  ATK = 0xFF79,
 
   // Part 15 marker segment
   CPF = 0xFF59

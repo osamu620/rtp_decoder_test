@@ -130,6 +130,10 @@ class tile_handler {
   qcd_marker *get_qcd() { return &qcd; }
   dfs_marker *get_dfs() { return &dfs; }
   bool is_ready() { return ready; }
+  // Drop the latched stream: the next complete main header re-parses from scratch and
+  // re-create()s the precinct structure (frame_handler's stream re-latch path — a
+  // mid-stream encoder re-dial or the parse-failure escape hatch).
+  void invalidate() { ready = false; }
   // Test/inspection hook: the CRP walk (component/resolution/precinct sequence) built by
   // prepare_precinct_structure for tile t. This IS the progression order the parser uses
   // as packet identity. Used by the PRCL/PCRL order tests; not on any hot path.
@@ -139,6 +143,13 @@ class tile_handler {
   // precinct structure for (e.g. an unsupported progression order). The caller MUST fail
   // the frame on false rather than proceed with an empty/invalid structure.
   bool create(codestream *buf) {
+    // Rebuild-from-scratch contract: every arena allocation in this parser happens inside
+    // create() (prepare_precinct_structure -> prec/pband/blk/tag-trees), so a re-create
+    // (stream re-latch after a mid-stream encoder re-dial) must restart the arena at
+    // offset 0 or the replaced stream's dead structures would accumulate until "Out of
+    // memory". restart() already resets the index at every frame boundary; doing it here
+    // too makes create() self-contained instead of relying on that side effect.
+    stackAlloc(0, 1);
     num_tiles_x = ceildiv_int((siz.Xsiz - siz.XTOsiz), siz.XTsiz);
     num_tiles_y = ceildiv_int((siz.Ysiz - siz.YTOsiz), siz.YTsiz);
 

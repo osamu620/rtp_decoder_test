@@ -70,6 +70,27 @@ class frame_handler {
   static constexpr int kAbortSlabCap    = 4;
   static constexpr int kAbortDamagedEOC = 5;
 
+  // ---- Stream re-latch (mid-stream encoder re-dial recovery, 2026-07-15) ----
+  // The main header used to be parsed ONCE; every later frame reused the latched
+  // start_SOD + tile structure, so an encoder re-dial (e.g. an i5x3 -> i9x7 kernel
+  // flip) garbage-parsed every subsequent frame — a permanent parse-failure loop
+  // until relaunch (field wedge, 2026-07-14). Now every complete main header's
+  // geometry signature (j2k_header.hpp geometry_signature) is verified before the
+  // latched state is reused; on mismatch the stream is RE-LATCHED: full header
+  // re-parse + tile_handler re-create, then this callback fires (worker thread,
+  // AFTER the new structure is live). Stream-scoped consumer caches (e.g. a PID
+  // resync map) must be dropped in it. Reasons:
+  //   kRelatchGeometry  — clean main header whose geometry signature differs from
+  //                       the latched stream's (rate-only re-dials hash equal and
+  //                       do NOT restart)
+  //   kRelatchParseFail — escape hatch: set_relatch_parse_fail_k() consecutive
+  //                       frames died in PARSE failures (gap/loss frames are
+  //                       neutral), so the latched structure itself is suspect;
+  //                       re-latched from the next clean main header
+  using StreamRelatchCb = void (*)(void *user, int reason);
+  static constexpr int kRelatchGeometry  = 1;
+  static constexpr int kRelatchParseFail = 2;
+
   // ---- Transport-assisted mid-frame resync (C2 Stage C; consumer = a decoder
   // that can resume at an RFC 9828 resync point, e.g. the H2L1 PL).
   // ResyncGapCb: fired INSTEAD of the kAbortGap abort when a gap hits a frame in
@@ -115,6 +136,13 @@ class frame_handler {
   void *resync_gap_arg_          = nullptr;
   ResyncPointCb resync_point_cb_ = nullptr;
   void *resync_point_arg_        = nullptr;
+  StreamRelatchCb relatch_cb_ = nullptr;
+  void *relatch_arg_          = nullptr;
+  uint64_t geom_sig_          = 0;  // signature of the latched stream (0 = none/unknown)
+  uint32_t relatch_k_         = 4;  // parse-fail hatch threshold in frames (0 = hatch off)
+  uint32_t parse_fail_streak_ = 0;  // consecutive frames dead by PARSE failure
+  bool frame_parse_failed_    = false;  // current frame died by a parse failure (not a gap)
+  size_t relatches_           = 0;
   bool resync_armed_ = false;  // gap accepted by the consumer; offering points
   // True from the first accepted gap until the frame ends: the SOFTWARE precinct
   // walk is parked (it would garbage-parse at the compaction seam and abort the
@@ -132,11 +160,24 @@ class frame_handler {
   }
 
   void fire_abort(int reason) {
+    if (reason == kAbortParse) frame_parse_failed_ = true;  // hatch evidence (gaps are neutral)
     resync_armed_ = false;  // the frame is over from the resync offer's perspective
     resync_soft_  = false;
     if (!abort_armed_) return;
     abort_armed_ = false;
     if (frame_abort_cb_) frame_abort_cb_(frame_abort_arg_, reason);
+  }
+
+  // Frame-end accounting for the parse-fail escape hatch: parse-failed frames grow the
+  // streak, clean frames reset it, gap/loss-failed frames are NEUTRAL (loss says nothing
+  // about whether the latched structure still matches the stream — under heavy loss the
+  // hatch must not churn re-latches, and under a silent re-dial loss must not mask it).
+  void end_frame_streak(bool clean) {
+    if (clean)
+      parse_fail_streak_ = 0;
+    else if (frame_parse_failed_)
+      parse_fail_streak_++;
+    frame_parse_failed_ = false;
   }
 
   void release_held_slabs() {
@@ -219,6 +260,17 @@ class frame_handler {
     resync_point_arg_ = point_arg;
   }
 
+  // Stream re-latch notification + tuning (see the typedef/constants above). The
+  // re-latch itself is always on — the callback is only observation/cache-drop.
+  void set_stream_relatch_callback(StreamRelatchCb cb, void *arg) {
+    relatch_cb_  = cb;
+    relatch_arg_ = arg;
+  }
+  // K consecutive parse-failed frames trigger the escape-hatch re-latch (default 4
+  // ≈ 67 ms at 60 fps; 0 disables the hatch — the geometry path stays active).
+  void set_relatch_parse_fail_k(uint32_t k) { relatch_k_ = k; }
+  size_t get_relatches() const { return relatches_; }
+
 #ifdef PARSER_OVERSHOOT_INSTR
   tile_handler::OvershootStats get_overshoot_stats() const { return tile_hndr.get_overshoot_stats(); }
   void reset_overshoot_stats() { tile_hndr.reset_overshoot_stats(); }
@@ -278,6 +330,7 @@ class frame_handler {
       release_held_slabs();
       tile_hndr.restart(0);
       trunc_frames += 1;
+      end_frame_streak(false);
       is_parsing_failure = 0;
       is_passed_header   = 0;
     }
@@ -298,6 +351,7 @@ class frame_handler {
           fire_abort(kAbortDamagedEOC);  // normally a no-op: the abort fired at the damage
           trunc_frames++;
           total_frames++;
+          end_frame_streak(false);
         }
         is_parsing_failure = 0;
         is_passed_header   = 0;
@@ -326,17 +380,47 @@ class frame_handler {
         if (is_passed_header || is_parsing_failure) {
           trunc_frames++;
           total_frames++;
+          end_frame_streak(false);
         }
         is_passed_header = 0;
       }
-      is_parsing_failure = 0;
+      is_parsing_failure  = 0;
+      frame_parse_failed_ = false;
       deliver_chunk(chain_total_bytes_, j2k_payload, size);
       cs.append_chunk(j2k_payload, size);
       held_slabs_.push_back(slab_idx);
       chain_total_bytes_ += size;
 
+      // Stream re-latch guard (complete-main-header packets): verify the geometry
+      // signature BEFORE trusting the latched start_SOD/tile structure. A mid-stream
+      // encoder re-dial (e.g. an i5x3 -> i9x7 kernel flip) used to garbage-parse every
+      // subsequent frame against the stale structure — a permanent parse-failure loop
+      // until relaunch (field wedge, 2026-07-14).
+      uint64_t sig = 0;
+      uint32_t sod = 0;
+      int relatch  = 0;
+      if (MH >= 2) {
+        sig = geometry_signature(j2k_payload, size, &sod);
+        if (sig == 0 && tile_hndr.is_ready()) {
+          // Malformed main header on a latched stream: refuse to reuse latched state
+          // on its say-so (the old path blindly cs.reset(start_SOD) and garbage-walked).
+          fire_abort(kAbortParse);
+          is_parsing_failure = 1;
+          return;
+        }
+        if (tile_hndr.is_ready()) {
+          if (geom_sig_ == 0) geom_sig_ = sig;  // adopt: stream was latched via MH==1 packets
+          if (relatch_k_ && parse_fail_streak_ >= relatch_k_)
+            relatch = kRelatchParseFail;  // escape hatch: the latched structure is suspect
+          else if (sig != geom_sig_)
+            relatch = kRelatchGeometry;  // clean header, new geometry
+          if (relatch) tile_hndr.invalidate();  // full re-parse + create() below
+        }
+      }
+
       if (!tile_hndr.is_ready()) {
         if (MH >= 2) {  // complete main header in this packet
+          cs.reset(0);  // defensive: the chain holds exactly this MH chunk (see clear())
           start_SOD = parse_main_header(&cs, tile_hndr.get_siz(), tile_hndr.get_cod(), tile_hndr.get_cocs(),
                                         tile_hndr.get_qcd(), tile_hndr.get_dfs());
           if (start_SOD == 0 || !tile_hndr.create(&cs)) {
@@ -344,11 +428,19 @@ class frame_handler {
             // fail the frame cleanly. Body packets are then dropped and the frame is
             // counted as truncated at EOC, instead of proceeding with an empty/invalid
             // precinct structure (or risking a non-terminating main-header scan).
+            // (On a failed RE-latch tile_hndr stays not-ready, so every following MH
+            // retries the full parse until a good header arrives — the resync scan.)
             fire_abort(kAbortParse);
             is_parsing_failure = 1;
             return;
           }
-          is_passed_header = 1;
+          is_passed_header   = 1;
+          geom_sig_          = sig;
+          parse_fail_streak_ = 0;
+          if (relatch) {  // fired AFTER the new structure is live (worker thread)
+            relatches_++;
+            if (relatch_cb_) relatch_cb_(relatch_arg_, relatch);
+          }
         } else {
           start_SOD += static_cast<uint32_t>(size);
           if (start_SOD == 0) {
@@ -356,9 +448,11 @@ class frame_handler {
           }
         }
       } else {
-        // Subsequent frames: position the codestream reader at start_SOD within the
-        // just-appended MH chunk. parse_main_header would have done this for the first
-        // frame; for re-used main headers, we do it explicitly.
+        // Subsequent frames, signature verified equal (or an MH==1 split header:
+        // unverifiable — the parse-fail escape hatch above still covers a silent
+        // re-dial). sod is authoritative from the fresh walk, so benign main-header
+        // length drift (a COM change etc.) self-heals instead of desyncing the walk.
+        if (sod) start_SOD = sod;
         cs.reset(start_SOD);
         is_passed_header = 1;
       }
@@ -396,7 +490,11 @@ class frame_handler {
       resync_soft_ = false;
       if (frame_intact) {
         ACTION(flush);
+        // A flush failure doesn't abort (all bytes were delivered) but IS structure-vs-
+        // stream evidence for the parse-fail escape hatch, same as a mid-frame failure.
+        if (is_parsing_failure) frame_parse_failed_ = true;
       }
+      end_frame_streak(frame_intact && !is_parsing_failure);
       // Write the frame's codestream before the slabs are released — the chain points
       // into the receiver's slab ring. Uses the same frame number as log_init so
       // out_NNNNN.j2c pairs with log_NNNNN.log.

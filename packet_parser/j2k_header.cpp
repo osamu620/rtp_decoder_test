@@ -360,6 +360,48 @@ static int parse_CAP(codestream *buf) {
   return EXIT_SUCCESS;
 }
 
+uint64_t geometry_signature(const uint8_t *mh, size_t len, uint32_t *sod_off) {
+  if (len < 4) return 0;
+  auto rd16 = [mh](size_t off) -> uint32_t { return ((uint32_t)mh[off] << 8) | mh[off + 1]; };
+  if (rd16(0) != SOC) return 0;
+  uint64_t h = 1469598103934665603ull;  // FNV-1a 64 offset basis
+  auto mix   = [&h, mh](size_t off, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+      h ^= mh[off + i];
+      h *= 1099511628211ull;
+    }
+  };
+  size_t off = 2;
+  while (off + 2 <= len) {
+    const uint32_t marker = rd16(off);
+    if (marker == SOD) {
+      if (sod_off) *sod_off = (uint32_t)(off + 2);
+      return h ? h : 1;
+    }
+    // Same bounded-scan rule as parse_main_header: every legal pre-SOD token is a
+    // 0xFFxx marker and not EOC; anything else means lost framing — fail, don't trust.
+    if ((marker & 0xFF00u) != 0xFF00u || marker == EOC) return 0;
+    if (off + 4 > len) return 0;         // truncated before the segment length
+    const uint32_t seg = rd16(off + 2);  // Lseg, includes its own 2 bytes
+    if (seg < 2 || off + 2 + seg > len) return 0;
+    switch (marker) {
+      case SIZ:
+      case COD:
+      case COC:
+      case QCD:
+      case QCC:
+      case DFS:
+      case ATK:
+        mix(off, 2 + seg);  // marker code + Lseg + payload
+        break;
+      default:  // CAP/COM/CPF/PLT/SOT/...: not geometry — length-skip only
+        break;
+    }
+    off += 2 + seg;
+  }
+  return 0;  // ran out before SOD
+}
+
 uint32_t parse_main_header(codestream *buf, siz_marker *siz, cod_marker *cod, coc_marker *cocs,
                            qcd_marker *qcd, dfs_marker *dfs) {
   if (buf->get_word() != SOC) {
