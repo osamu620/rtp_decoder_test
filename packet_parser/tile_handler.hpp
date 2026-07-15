@@ -33,12 +33,12 @@ class tile_handler {
     size_t recoveries         = 0;  // parse failures recovered by snapping to next signal
     size_t skipped_precincts  = 0;  // precincts skipped due to recovery
     // Why try_recover returned false (incremented in addition to failed_parses):
-    size_t recover_no_signal  = 0;  // queue empty (no signal beyond cur_pos)
-    size_t recover_bad_pid    = 0;  // PID mapped out of crp_idx_by_pid_ bounds
-    size_t recover_backward   = 0;  // new_crp_idx < current crp_idx (would move backward)
-    uint32_t last_fail_c      = 0;
-    uint32_t last_fail_r      = 0;
-    uint32_t last_fail_p      = 0;
+    size_t recover_no_signal   = 0;  // queue empty (no signal beyond cur_pos)
+    size_t recover_bad_pid     = 0;  // PID mapped out of crp_idx_by_pid_ bounds
+    size_t recover_backward    = 0;  // new_crp_idx < current crp_idx (would move backward)
+    uint32_t last_fail_c       = 0;
+    uint32_t last_fail_r       = 0;
+    uint32_t last_fail_p       = 0;
     uint32_t last_fail_crp_idx = 0;
     uint32_t last_fail_src_pos = 0;
   };
@@ -328,7 +328,7 @@ class tile_handler {
 #endif
       return false;
     }
-    const Signal sig = signal_queue_.front();
+    const Signal sig  = signal_queue_.front();
     const uint32_t nc = static_cast<uint32_t>(siz.Csiz);
     if (nc == 0) return false;
     const uint32_t c = sig.pid % nc;
@@ -369,16 +369,15 @@ class tile_handler {
 
   void record_failure(codestream *buf, const crp_status &ct, uint32_t crp_idx) {
     ostats_.failed_parses++;
-    ostats_.last_fail_c        = ct.c;
-    ostats_.last_fail_r        = ct.r;
-    ostats_.last_fail_p        = ct.p;
-    ostats_.last_fail_crp_idx  = crp_idx;
-    ostats_.last_fail_src_pos  = buf->get_pos();
+    ostats_.last_fail_c       = ct.c;
+    ostats_.last_fail_r       = ct.r;
+    ostats_.last_fail_p       = ct.p;
+    ostats_.last_fail_crp_idx = crp_idx;
+    ostats_.last_fail_src_pos = buf->get_pos();
   }
 #endif
 
  public:
-
   void restart(uint32_t /*start_SOD*/) {
     // New frame: clear the signal queue. The frame's first body packet will append
     // start_SOD as its first signal (PID=0, POS=0 ⇒ byte_offset = size_MH = start_SOD).

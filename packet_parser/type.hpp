@@ -38,12 +38,12 @@ class codestream {
   // Per-frame staging buffers for codeblock bodies that span chunk boundaries. Each
   // entry is owned for the lifetime of the chain (cleared on clear()).
   std::vector<std::vector<uint8_t>> staging_;
-  size_t cur_chunk_                = 0;
-  size_t cur_offset_               = 0;
+  size_t cur_chunk_                 = 0;
+  size_t cur_offset_                = 0;
   size_t consumed_before_cur_chunk_ = 0;
-  uint8_t tmp  = 0;
-  uint8_t last = 0;
-  uint8_t bits = 0;
+  uint8_t tmp                       = 0;
+  uint8_t last                      = 0;
+  uint8_t bits                      = 0;
 #ifdef PARSER_OVERSHOOT_INSTR
   size_t max_offset_read_ = 0;
 #endif
@@ -213,7 +213,7 @@ inline void codestream::reset(uint32_t p) {
   cur_chunk_                 = 0;
   cur_offset_                = 0;
   consumed_before_cur_chunk_ = 0;
-  size_t remaining = p;
+  size_t remaining           = p;
   while (cur_chunk_ < chunks_.size() && remaining >= chunks_[cur_chunk_].len) {
     remaining -= chunks_[cur_chunk_].len;
     consumed_before_cur_chunk_ += chunks_[cur_chunk_].len;
@@ -241,7 +241,7 @@ inline const uint8_t *codestream::take_contiguous(size_t len) {
   // overwrite them after restart() resets the index.
   staging_.emplace_back(len);
   uint8_t *staging = staging_.back().data();
-  size_t copied = 0;
+  size_t copied    = 0;
   while (copied < len && cur_chunk_ < chunks_.size()) {
     size_t avail   = chunks_[cur_chunk_].len - cur_offset_;
     size_t to_copy = (len - copied < avail) ? len - copied : avail;

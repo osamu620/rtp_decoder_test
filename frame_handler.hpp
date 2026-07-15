@@ -63,7 +63,7 @@ class frame_handler {
   // After an abort, no further chunks are delivered until the next frame's main packet.
   // A parse failure at/after EOC (flush) does NOT abort: every byte was already
   // delivered, so a byte-stream consumer's frame is complete regardless.
-  using FrameAbortCb = void (*)(void *user, int reason);
+  using FrameAbortCb                    = void (*)(void *user, int reason);
   static constexpr int kAbortGap        = 1;
   static constexpr int kAbortParse      = 2;
   static constexpr int kAbortMissedEOC  = 3;
@@ -87,7 +87,7 @@ class frame_handler {
   //                       frames died in PARSE failures (gap/loss frames are
   //                       neutral), so the latched structure itself is suspect;
   //                       re-latched from the next clean main header
-  using StreamRelatchCb = void (*)(void *user, int reason);
+  using StreamRelatchCb                  = void (*)(void *user, int reason);
   static constexpr int kRelatchGeometry  = 1;
   static constexpr int kRelatchParseFail = 2;
 
@@ -128,22 +128,22 @@ class frame_handler {
   FrameReadyCb frame_ready_cb_ = nullptr;
   void *frame_ready_arg_       = nullptr;
 
-  ChunkCb chunk_cb_            = nullptr;
-  void *chunk_arg_             = nullptr;
-  FrameAbortCb frame_abort_cb_ = nullptr;
-  void *frame_abort_arg_       = nullptr;
+  ChunkCb chunk_cb_              = nullptr;
+  void *chunk_arg_               = nullptr;
+  FrameAbortCb frame_abort_cb_   = nullptr;
+  void *frame_abort_arg_         = nullptr;
   ResyncGapCb resync_gap_cb_     = nullptr;
   void *resync_gap_arg_          = nullptr;
   ResyncPointCb resync_point_cb_ = nullptr;
   void *resync_point_arg_        = nullptr;
-  StreamRelatchCb relatch_cb_ = nullptr;
-  void *relatch_arg_          = nullptr;
-  uint64_t geom_sig_          = 0;  // signature of the latched stream (0 = none/unknown)
-  uint32_t relatch_k_         = 4;  // parse-fail hatch threshold in frames (0 = hatch off)
-  uint32_t parse_fail_streak_ = 0;  // consecutive frames dead by PARSE failure
-  bool frame_parse_failed_    = false;  // current frame died by a parse failure (not a gap)
-  size_t relatches_           = 0;
-  bool resync_armed_ = false;  // gap accepted by the consumer; offering points
+  StreamRelatchCb relatch_cb_    = nullptr;
+  void *relatch_arg_             = nullptr;
+  uint64_t geom_sig_             = 0;      // signature of the latched stream (0 = none/unknown)
+  uint32_t relatch_k_            = 4;      // parse-fail hatch threshold in frames (0 = hatch off)
+  uint32_t parse_fail_streak_    = 0;      // consecutive frames dead by PARSE failure
+  bool frame_parse_failed_       = false;  // current frame died by a parse failure (not a gap)
+  size_t relatches_              = 0;
+  bool resync_armed_             = false;  // gap accepted by the consumer; offering points
   // True from the first accepted gap until the frame ends: the SOFTWARE precinct
   // walk is parked (it would garbage-parse at the compaction seam and abort the
   // frame — the resync consumer's own decoder handles the seam), while chunk
@@ -252,8 +252,7 @@ class frame_handler {
 
   // C2 Stage C (see the typedefs above): register a resync-capable consumer.
   // Both must be set for the gap-accept path to engage.
-  void set_resync_callbacks(ResyncGapCb gap_cb, void *gap_arg,
-                            ResyncPointCb point_cb, void *point_arg) {
+  void set_resync_callbacks(ResyncGapCb gap_cb, void *gap_arg, ResyncPointCb point_cb, void *point_arg) {
     resync_gap_cb_    = gap_cb;
     resync_gap_arg_   = gap_arg;
     resync_point_cb_  = point_cb;
@@ -309,8 +308,7 @@ class frame_handler {
     // the chain then keeps delivering (compacted) and ORDB points are offered until
     // the consumer takes one. Declined/absent consumer = today's abort, unchanged.
     if (gap && (is_passed_header || !held_slabs_.empty()) && !is_parsing_failure) {
-      if (resync_gap_cb_ && is_passed_header &&
-          resync_gap_cb_(resync_gap_arg_, chain_total_bytes_)) {
+      if (resync_gap_cb_ && is_passed_header && resync_gap_cb_(resync_gap_arg_, chain_total_bytes_)) {
         resync_armed_ = true;
         resync_soft_  = true;  // park the software walk for the rest of the frame
       } else {
@@ -361,9 +359,9 @@ class frame_handler {
       return;
     }
 
-    const uint32_t ORDB    = (payload[1] >> 7) & 1u;  // RFC 9828 body header: resync-present
-    const uint32_t POS_PID = __builtin_bswap32(*(uint32_t *)(payload + 4));
-    const uint32_t PID     = POS_PID & 0x000FFFFF;    // valid only when ORDB=1
+    const uint32_t ORDB               = (payload[1] >> 7) & 1u;  // RFC 9828 body header: resync-present
+    const uint32_t POS_PID            = __builtin_bswap32(*(uint32_t *)(payload + 4));
+    const uint32_t PID                = POS_PID & 0x000FFFFF;  // valid only when ORDB=1
     uint8_t *__restrict__ j2k_payload = payload + 8;
 
     if (MH >= 1) {  // Main packet — start of a new frame's main header bytes.
@@ -413,7 +411,7 @@ class frame_handler {
           if (relatch_k_ && parse_fail_streak_ >= relatch_k_)
             relatch = kRelatchParseFail;  // escape hatch: the latched structure is suspect
           else if (sig != geom_sig_)
-            relatch = kRelatchGeometry;  // clean header, new geometry
+            relatch = kRelatchGeometry;         // clean header, new geometry
           if (relatch) tile_hndr.invalidate();  // full re-parse + create() below
         }
       }
@@ -468,8 +466,7 @@ class frame_handler {
       if (ORDB && is_passed_header) {
         tile_hndr.append_signal(resync_byte, PID);
         // C2 Stage C: offer each post-gap resync point until the consumer takes one
-        if (resync_armed_ && resync_point_cb_ &&
-            resync_point_cb_(resync_point_arg_, resync_byte, PID))
+        if (resync_armed_ && resync_point_cb_ && resync_point_cb_(resync_point_arg_, resync_byte, PID))
           resync_armed_ = false;
         if (!is_parsing_failure && !resync_soft_) {
           ACTION(parse, PID);
@@ -487,7 +484,7 @@ class frame_handler {
       // A resynced frame is complete for the BYTE consumer but its software walk
       // is parked (and the chain is compacted) — flushing would garbage-parse.
       const bool frame_intact = !is_parsing_failure && is_passed_header && !resync_soft_;
-      resync_soft_ = false;
+      resync_soft_            = false;
       if (frame_intact) {
         ACTION(flush);
         // A flush failure doesn't abort (all bytes were delivered) but IS structure-vs-

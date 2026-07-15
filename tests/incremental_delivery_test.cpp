@@ -69,7 +69,10 @@ std::vector<Pkt> packetize(const std::vector<uint8_t> &cs, size_t body_chunk) {
   std::vector<Pkt> pkts;
   size_t sod = 0;
   for (size_t i = 0; i + 1 < cs.size(); i++)
-    if (cs[i] == 0xFF && cs[i + 1] == 0x93) { sod = i + 2; break; }
+    if (cs[i] == 0xFF && cs[i + 1] == 0x93) {
+      sod = i + 2;
+      break;
+    }
   if (!sod) return pkts;
 
   auto push = [&](const uint8_t *p, size_t n, int mh, int marker) {
@@ -90,13 +93,13 @@ std::vector<Pkt> packetize(const std::vector<uint8_t> &cs, size_t body_chunk) {
 
 // Test consumer state shared by the callbacks.
 struct Ctx {
-  std::vector<uint8_t> got;     // concatenated chunk bytes for the CURRENT frame
-  size_t next_off   = 0;        // contiguity cursor
-  size_t contig_bad = 0;
+  std::vector<uint8_t> got;  // concatenated chunk bytes for the CURRENT frame
+  size_t next_off     = 0;   // contiguity cursor
+  size_t contig_bad   = 0;
   size_t frames_ready = 0, frames_intact = 0;
-  std::vector<int> aborts;      // reasons, in order
-  std::vector<int> relatches;   // stream re-latch reasons, in order
-  bool dead = false;            // abort seen for the current frame
+  std::vector<int> aborts;            // reasons, in order
+  std::vector<int> relatches;         // stream re-latch reasons, in order
+  bool dead                 = false;  // abort seen for the current frame
   size_t chunks_after_abort = 0;
 
   void reset_frame() {
@@ -109,7 +112,10 @@ struct Ctx {
 void on_chunk(void *u, size_t off, const uint8_t *b, size_t n) {
   auto *c = static_cast<Ctx *>(u);
   if (off == 0) c->reset_frame();  // new frame begins
-  if (c->dead) { c->chunks_after_abort++; return; }
+  if (c->dead) {
+    c->chunks_after_abort++;
+    return;
+  }
   if (off != c->next_off) c->contig_bad++;
   c->got.insert(c->got.end(), b, b + n);
   c->next_off = off + n;
@@ -149,13 +155,13 @@ void release_slab(void *u, size_t idx) {
 }
 
 int fails = 0;
-#define CHECK(cond, ...)                                  \
-  do {                                                    \
-    if (!(cond)) {                                        \
-      std::fprintf(stderr, "FAIL: " __VA_ARGS__);         \
-      std::fprintf(stderr, "  [%s]\n", #cond);            \
-      fails++;                                            \
-    }                                                     \
+#define CHECK(cond, ...)                          \
+  do {                                            \
+    if (!(cond)) {                                \
+      std::fprintf(stderr, "FAIL: " __VA_ARGS__); \
+      std::fprintf(stderr, "  [%s]\n", #cond);    \
+      fails++;                                    \
+    }                                             \
   } while (0)
 
 // Feed a packet list; skip[i]==true drops packet i (gap=true passed on the next
@@ -171,8 +177,7 @@ void feed(j2k::frame_handler &fh, Slabs &slabs, const std::vector<Pkt> &pkts,
     size_t idx = slabs.mem.size();
     slabs.mem.push_back(pkts[i].payload);  // slab-lifetime copy
     slabs.held.push_back(1);
-    fh.pull_data(slabs.mem[idx].data(), pkts[i].payload.size() - 8, pkts[i].marker, idx,
-                 pending_gap);
+    fh.pull_data(slabs.mem[idx].data(), pkts[i].payload.size() - 8, pkts[i].marker, idx, pending_gap);
     pending_gap = false;
   }
 }
@@ -206,8 +211,7 @@ int main(int argc, char **argv) {
     fh.set_frame_abort_callback(&on_abort, &ctx);
     fh.set_frame_ready_callback(&on_ready, &ctx);
     feed(fh, slabs, pkts);
-    CHECK(ctx.got == cs, "clean f1: reassembled bytes != input (%zu vs %zu)\n", ctx.got.size(),
-          cs.size());
+    CHECK(ctx.got == cs, "clean f1: reassembled bytes != input (%zu vs %zu)\n", ctx.got.size(), cs.size());
     feed(fh, slabs, pkts);
     CHECK(ctx.got == cs, "clean f2: reassembled bytes != input\n");
     CHECK(ctx.contig_bad == 0, "clean: %zu non-contiguous chunks\n", ctx.contig_bad);
@@ -231,8 +235,7 @@ int main(int argc, char **argv) {
     CHECK(ctx.aborts.size() == 1 && ctx.aborts[0] == j2k::frame_handler::kAbortGap,
           "gap: expected exactly one kAbortGap, got %zu aborts\n", ctx.aborts.size());
     CHECK(ctx.frames_ready == 0, "gap: frame_ready fired for a gapped frame\n");
-    CHECK(ctx.chunks_after_abort == 0, "gap: %zu chunks delivered after abort\n",
-          ctx.chunks_after_abort);
+    CHECK(ctx.chunks_after_abort == 0, "gap: %zu chunks delivered after abort\n", ctx.chunks_after_abort);
     feed(fh, slabs, pkts);
     CHECK(ctx.got == cs, "gap: frame 2 not delivered clean\n");
     CHECK(ctx.frames_ready == 1 && ctx.frames_intact == 1, "gap: frame 2 not intact\n");
@@ -339,13 +342,12 @@ int main(int argc, char **argv) {
     fh.set_frame_abort_callback(&on_abort, &ctx);
     fh.set_frame_ready_callback(&on_ready, &ctx);
     fh.set_stream_relatch_callback(&on_relatch, &ctx);
-    feed(fh, slabs, pkts);                                   // latch stream A
-    std::vector<Pkt> cut(pkts.begin(), pkts.end() - 3);      // A frame torn mid-arrival
+    feed(fh, slabs, pkts);                               // latch stream A
+    std::vector<Pkt> cut(pkts.begin(), pkts.end() - 3);  // A frame torn mid-arrival
     feed(fh, slabs, cut);
-    feed(fh, slabs, pktsB);                                  // the re-dial lands here
+    feed(fh, slabs, pktsB);  // the re-dial lands here
     CHECK(ctx.aborts.size() == 1 && ctx.aborts[0] == j2k::frame_handler::kAbortMissedEOC,
-          "mid-flip: expected one kAbortMissedEOC for the torn frame, got %zu aborts\n",
-          ctx.aborts.size());
+          "mid-flip: expected one kAbortMissedEOC for the torn frame, got %zu aborts\n", ctx.aborts.size());
     CHECK(ctx.got == csB, "mid-flip: the first new-stream frame not delivered clean\n");
     CHECK(ctx.frames_ready == 2 && ctx.frames_intact == 2, "mid-flip: ready=%zu intact=%zu != 2/2\n",
           ctx.frames_ready, ctx.frames_intact);
@@ -366,18 +368,17 @@ int main(int argc, char **argv) {
     fh.set_frame_ready_callback(&on_ready, &ctx);
     fh.set_stream_relatch_callback(&on_relatch, &ctx);
     fh.set_relatch_parse_fail_k(3);
-    std::vector<Pkt> hybrid;                    // A's main header, B's body: the signature
-    hybrid.push_back(pkts[0]);                  // matches the latched stream, but the body
+    std::vector<Pkt> hybrid;    // A's main header, B's body: the signature
+    hybrid.push_back(pkts[0]);  // matches the latched stream, but the body
     hybrid.insert(hybrid.end(), pktsB.begin() + 1, pktsB.end());  // parse-fails every frame
-    feed(fh, slabs, pkts);                      // latch stream A
-    for (int i = 0; i < 4; i++) feed(fh, slabs, hybrid);  // 3 grow the streak; #4 trips the hatch
+    feed(fh, slabs, pkts);                                        // latch stream A
+    for (int i = 0; i < 4; i++) feed(fh, slabs, hybrid);          // 3 grow the streak; #4 trips the hatch
     bool hatch_fired = false;
     for (int r : ctx.relatches) hatch_fired |= (r == j2k::frame_handler::kRelatchParseFail);
     CHECK(hatch_fired, "hatch: kRelatchParseFail never fired after 4 parse-failed frames (K=3)\n");
-    feed(fh, slabs, pktsB);                     // a clean B recovers via a geometry re-latch
+    feed(fh, slabs, pktsB);  // a clean B recovers via a geometry re-latch
     CHECK(ctx.got == csB, "hatch: clean B frame after the hatch not delivered clean\n");
-    CHECK(!ctx.relatches.empty()
-              && ctx.relatches.back() == j2k::frame_handler::kRelatchGeometry,
+    CHECK(!ctx.relatches.empty() && ctx.relatches.back() == j2k::frame_handler::kRelatchGeometry,
           "hatch: the clean B frame did not geometry-re-latch\n");
     CHECK(slabs.leaked() == 0, "hatch: %zu slabs leaked\n", slabs.leaked());
     scenarios++;
@@ -414,8 +415,8 @@ int main(int argc, char **argv) {
           "geometry_signature must not hash rate-dependent bytes like SOT/Psot)\n",
           ctx.relatches.size());
     CHECK(ctx.aborts.empty() && ctx.frames_ready == 3 && ctx.frames_intact == 3,
-          "rate-only: aborts=%zu ready=%zu intact=%zu != 0/3/3\n", ctx.aborts.size(),
-          ctx.frames_ready, ctx.frames_intact);
+          "rate-only: aborts=%zu ready=%zu intact=%zu != 0/3/3\n", ctx.aborts.size(), ctx.frames_ready,
+          ctx.frames_intact);
     CHECK(slabs.leaked() == 0, "rate-only: %zu slabs leaked\n", slabs.leaked());
     scenarios++;
   }

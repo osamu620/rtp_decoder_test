@@ -339,10 +339,10 @@ static uint16_t g_Ccap2  = 0;  // Part-2 extended capabilities; bit 14 = EXTENDE
 uint16_t get_Ccap15() { return g_Ccap15; }
 
 static int parse_CAP(codestream *buf) {
-  uint16_t Lcap = buf->get_word();
-  uint32_t Pcap = buf->get_dword();
+  uint16_t Lcap           = buf->get_word();
+  uint32_t Pcap           = buf->get_dword();
   uint16_t expected_words = (Lcap >= 6) ? static_cast<uint16_t>((Lcap - 6) / 2) : 0;
-  uint16_t read_words = 0;
+  uint16_t read_words     = 0;
   // Pcap bit i (numbered 1=MSB..32=LSB) signals Part i. Loop index i=0 -> bit 31 (Part 1),
   // i=1 -> Part 2, i=14 -> Part 15. Each set bit is followed by one Ccap^i word.
   for (int i = 0; i < 32; ++i) {

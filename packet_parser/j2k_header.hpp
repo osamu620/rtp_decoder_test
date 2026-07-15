@@ -7,8 +7,8 @@
 
 #include "type.hpp"
 
-uint32_t parse_main_header(codestream *buf, siz_marker *siz, cod_marker *cod, coc_marker *cocs, qcd_marker *qcd,
-                      dfs_marker *dfs);
+uint32_t parse_main_header(codestream *buf, siz_marker *siz, cod_marker *cod, coc_marker *cocs,
+                           qcd_marker *qcd, dfs_marker *dfs);
 
 // Returns Ccap[15] from the most recently parsed main header (0 if no CAP marker).
 uint16_t get_Ccap15();
